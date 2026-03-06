@@ -1,0 +1,7 @@
+Watch aggregate progress for a task_branch run.
+
+Use this to see all branch task statuses in one place, including active tools, evaluator scores, winner selection, a merged event stream, and the shared-context publication entry for the resolved branch run when available.
+
+Pass the branch_id returned by task_branch.
+
+Set wait_ms to long-poll for new updates.

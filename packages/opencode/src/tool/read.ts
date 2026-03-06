@@ -1,0 +1,310 @@
+import z from "zod"
+import * as fs from "fs/promises"
+import * as path from "path"
+import { Tool } from "./tool"
+import { LSP } from "../lsp"
+import { FileTime } from "../file/time"
+import DESCRIPTION from "./read.txt"
+import { Instance } from "../project/instance"
+import { assertExternalDirectory } from "./external-directory"
+import { InstructionPrompt } from "../session/instruction"
+import { Filesystem } from "../util/filesystem"
+
+const DEFAULT_READ_LIMIT = 2000
+const MAX_LINE_LENGTH = 2000
+const MAX_LINE_SUFFIX = `... (line truncated to ${MAX_LINE_LENGTH} chars)`
+const MAX_BYTES = 50 * 1024
+const MAX_BYTES_LABEL = `${MAX_BYTES / 1024} KB`
+const CACHE_MAX = 32
+const CACHE_BYTES = 8 * 1024 * 1024
+const CACHE_FILE = 1024 * 1024
+
+const cache = new Map<string, { tag: string; rows: string[]; bytes: number }>()
+let size = 0
+
+const split = (text: string) => {
+  if (!text) return [] as string[]
+  const rows = text.split(/\r?\n/g)
+  if (text.endsWith("\n")) rows.pop()
+  return rows
+}
+
+const trim = () => {
+  while (cache.size > CACHE_MAX || size > CACHE_BYTES) {
+    const first = cache.keys().next().value
+    if (!first) return
+    const item = cache.get(first)
+    cache.delete(first)
+    if (!item) continue
+    size -= item.bytes
+  }
+}
+
+const load = async (filepath: string, stat: NonNullable<ReturnType<typeof Filesystem.stat>>) => {
+  const bytes = Number(stat.size)
+  const tag = `${stat.mtimeMs}:${bytes}`
+  const hit = cache.get(filepath)
+  if (hit?.tag === tag) {
+    cache.delete(filepath)
+    cache.set(filepath, hit)
+    return hit.rows
+  }
+
+  if (hit) {
+    cache.delete(filepath)
+    size -= hit.bytes
+  }
+
+  const rows = split(await Bun.file(filepath).text())
+  if (bytes <= CACHE_FILE) {
+    cache.set(filepath, { tag, rows, bytes })
+    size += bytes
+    trim()
+  }
+  return rows
+}
+
+export const ReadTool = Tool.define("read", {
+  description: DESCRIPTION,
+  parameters: z.object({
+    filePath: z.string().describe("The absolute path to the file or directory to read"),
+    offset: z.coerce.number().describe("The line number to start reading from (1-indexed)").optional(),
+    limit: z.coerce.number().describe("The maximum number of lines to read (defaults to 2000)").optional(),
+  }),
+  async execute(params, ctx) {
+    if (params.offset !== undefined && params.offset < 1) {
+      throw new Error("offset must be greater than or equal to 1")
+    }
+    let filepath = params.filePath
+    if (!path.isAbsolute(filepath)) {
+      filepath = path.resolve(Instance.directory, filepath)
+    }
+    const title = path.relative(Instance.worktree, filepath)
+
+    const stat = Filesystem.stat(filepath)
+
+    await assertExternalDirectory(ctx, filepath, {
+      bypass: Boolean(ctx.extra?.["bypassCwdCheck"]),
+      kind: stat?.isDirectory() ? "directory" : "file",
+    })
+
+    await ctx.ask({
+      permission: "read",
+      patterns: [filepath],
+      always: ["*"],
+      metadata: {},
+    })
+
+    if (!stat) {
+      const dir = path.dirname(filepath)
+      const base = path.basename(filepath)
+
+      const suggestions = await fs
+        .readdir(dir)
+        .then((entries) =>
+          entries
+            .filter(
+              (entry) =>
+                entry.toLowerCase().includes(base.toLowerCase()) || base.toLowerCase().includes(entry.toLowerCase()),
+            )
+            .map((entry) => path.join(dir, entry))
+            .slice(0, 3),
+        )
+        .catch(() => [])
+
+      if (suggestions.length > 0) {
+        throw new Error(`File not found: ${filepath}\n\nDid you mean one of these?\n${suggestions.join("\n")}`)
+      }
+
+      throw new Error(`File not found: ${filepath}`)
+    }
+
+    if (stat.isDirectory()) {
+      const dirents = await fs.readdir(filepath, { withFileTypes: true })
+      const entries = await Promise.all(
+        dirents.map(async (dirent) => {
+          if (dirent.isDirectory()) return dirent.name + "/"
+          if (dirent.isSymbolicLink()) {
+            const target = await fs.stat(path.join(filepath, dirent.name)).catch(() => undefined)
+            if (target?.isDirectory()) return dirent.name + "/"
+          }
+          return dirent.name
+        }),
+      )
+      entries.sort((a, b) => a.localeCompare(b))
+
+      const limit = params.limit ?? DEFAULT_READ_LIMIT
+      const offset = params.offset ?? 1
+      const start = offset - 1
+      const sliced = entries.slice(start, start + limit)
+      const truncated = start + sliced.length < entries.length
+
+      const output = [
+        `<path>${filepath}</path>`,
+        `<type>directory</type>`,
+        `<entries>`,
+        sliced.join("\n"),
+        truncated
+          ? `\n(Showing ${sliced.length} of ${entries.length} entries. Use 'offset' parameter to read beyond entry ${offset + sliced.length})`
+          : `\n(${entries.length} entries)`,
+        `</entries>`,
+      ].join("\n")
+
+      return {
+        title,
+        output,
+        metadata: {
+          preview: sliced.slice(0, 20).join("\n"),
+          truncated,
+          loaded: [] as string[],
+        },
+      }
+    }
+
+    const note = InstructionPrompt.resolve(ctx.messages, filepath, ctx.messageID)
+
+    // Exclude SVG (XML-based) and vnd.fastbidsheet (.fbs extension, commonly FlatBuffers schema files)
+    const mime = Filesystem.mimeType(filepath)
+    const isImage = mime.startsWith("image/") && mime !== "image/svg+xml" && mime !== "image/vnd.fastbidsheet"
+    const isPdf = mime === "application/pdf"
+    if (isImage || isPdf) {
+      const [instructions, data] = await Promise.all([note, Bun.file(filepath).arrayBuffer()])
+      const msg = `${isImage ? "Image" : "PDF"} read successfully`
+      return {
+        title,
+        output: msg,
+        metadata: {
+          preview: msg,
+          truncated: false,
+          loaded: instructions.map((item) => item.filepath),
+        },
+        attachments: [
+          {
+            type: "file",
+            mime,
+            url: `data:${mime};base64,${Buffer.from(data).toString("base64")}`,
+          },
+        ],
+      }
+    }
+
+    const [instructions, isBinary] = await Promise.all([note, isBinaryFile(filepath, Number(stat.size))])
+    if (isBinary) throw new Error(`Cannot read binary file: ${filepath}`)
+
+    const offset = params.offset ?? 1
+    const limit = params.limit ?? DEFAULT_READ_LIMIT
+    const start = offset - 1
+    const all = await load(filepath, stat)
+
+    if (all.length < offset && !(all.length === 0 && offset === 1)) {
+      throw new Error(`Offset ${offset} is out of range for this file (${all.length} lines)`)
+    }
+
+    const raw = [] as string[]
+    let bytes = 0
+    let truncatedByBytes = false
+
+    for (let i = start; i < all.length && raw.length < limit; i++) {
+      const text = all[i].length > MAX_LINE_LENGTH ? all[i].substring(0, MAX_LINE_LENGTH) + MAX_LINE_SUFFIX : all[i]
+      const next = Buffer.byteLength(text, "utf-8") + (raw.length > 0 ? 1 : 0)
+      if (bytes + next > MAX_BYTES) {
+        truncatedByBytes = true
+        break
+      }
+      raw.push(text)
+      bytes += next
+    }
+
+    const content = raw.map((line, index) => `${index + offset}: ${line}`)
+    const preview = raw.slice(0, 20).join("\n")
+
+    let output = [`<path>${filepath}</path>`, `<type>file</type>`, "<content>"].join("\n")
+    output += content.join("\n")
+
+    const lastReadLine = offset + raw.length - 1
+    const nextOffset = lastReadLine + 1
+    const hasMoreLines = start + raw.length < all.length
+    const truncated = hasMoreLines || truncatedByBytes
+
+    if (truncatedByBytes) {
+      output += `\n\n(Output capped at ${MAX_BYTES_LABEL}. Showing lines ${offset}-${lastReadLine}. Use offset=${nextOffset} to continue.)`
+    } else if (hasMoreLines) {
+      output += `\n\n(Showing lines ${offset}-${lastReadLine} of ${all.length}. Use offset=${nextOffset} to continue.)`
+    } else {
+      output += `\n\n(End of file - total ${all.length} lines)`
+    }
+    output += "\n</content>"
+
+    // just warms the lsp client
+    LSP.touchFile(filepath, false)
+    FileTime.read(ctx.sessionID, filepath)
+
+    if (instructions.length > 0) {
+      output += `\n\n<system-reminder>\n${instructions.map((item) => item.content).join("\n\n")}\n</system-reminder>`
+    }
+
+    return {
+      title,
+      output,
+      metadata: {
+        preview,
+        truncated,
+        loaded: instructions.map((item) => item.filepath),
+      },
+    }
+  },
+})
+
+async function isBinaryFile(filepath: string, fileSize: number): Promise<boolean> {
+  const ext = path.extname(filepath).toLowerCase()
+  // binary check for common non-text extensions
+  switch (ext) {
+    case ".zip":
+    case ".tar":
+    case ".gz":
+    case ".exe":
+    case ".dll":
+    case ".so":
+    case ".class":
+    case ".jar":
+    case ".war":
+    case ".7z":
+    case ".doc":
+    case ".docx":
+    case ".xls":
+    case ".xlsx":
+    case ".ppt":
+    case ".pptx":
+    case ".odt":
+    case ".ods":
+    case ".odp":
+    case ".bin":
+    case ".dat":
+    case ".obj":
+    case ".o":
+    case ".a":
+    case ".lib":
+    case ".wasm":
+    case ".pyc":
+    case ".pyo":
+      return true
+    default:
+      break
+  }
+
+  if (fileSize === 0) return false
+
+  const sample = Math.min(4096, fileSize)
+  const bytes = new Uint8Array(await Bun.file(filepath).slice(0, sample).arrayBuffer())
+  if (bytes.length === 0) return false
+
+  let bad = 0
+  for (let i = 0; i < bytes.length; i++) {
+    if (bytes[i] === 0) return true
+    if (bytes[i] < 9 || (bytes[i] > 13 && bytes[i] < 32)) {
+      bad++
+    }
+  }
+  // If >30% non-printable characters, consider it binary
+  return bad / bytes.length > 0.3
+}

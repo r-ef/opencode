@@ -1,0 +1,9 @@
+Watch incremental progress updates from a background subagent task.
+
+Use this for live progress while the task is running. The output also includes shared-context cursor/publication details so you can correlate runtime progress with what sibling sessions can already see.
+
+Pass the task_id returned by task, and optionally a cursor from the previous task_watch call to receive only newer updates.
+
+The cursor is a monotonic event cursor, not a timestamp.
+
+Set wait_ms to long-poll for new updates.

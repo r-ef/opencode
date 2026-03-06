@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "skills": {
+    "agent-tui": {
+      "source": "pproenca/agent-tui",
+      "sourceType": "github",
+      "computedHash": "d59453a7f5d7bd1d8880a60cdf81ac0319ac40d30d14bada8b5e687c1c5a7336"
+    }
+  }
+}

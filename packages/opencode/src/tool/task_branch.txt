@@ -1,0 +1,7 @@
+Run 2-5 isolated counterfactual branches for the same task and pick the strongest result.
+
+Use this when the task has multiple plausible strategies and you want parallel exploration from the same starting snapshot.
+
+Pass a short description, the base prompt, the subagent type, and 2-5 branch strategy prompts.
+
+Use background=true to start the tournament asynchronously. Then use task_branch_status with the returned branch_id for aggregate progress, and task_branch_apply to apply the winning branch back to the parent workspace.

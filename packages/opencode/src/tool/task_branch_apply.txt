@@ -1,0 +1,7 @@
+Apply the selected result from a completed task_branch run back into the parent workspace.
+
+By default this applies the evaluator-selected winner. You can optionally target a specific branch by name or task_id.
+
+Safety checks prevent overwriting local changes on the same files.
+
+Pass the branch_id returned by task_branch.

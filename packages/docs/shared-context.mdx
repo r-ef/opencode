@@ -1,0 +1,80 @@
+---
+title: "Shared Context"
+description: "How background tasks, branch runs, and sibling sessions share durable context updates."
+---
+
+## Overview
+
+Shared context is a durable event stream attached to a root session tree.
+
+Background subtasks and branch tournaments publish updates into that stream so sibling sessions can continue work without manually re-reading every subagent transcript.
+
+## What Gets Published
+
+- `task_result` when a subtask completes successfully
+- `task_error` when a subtask fails
+- `task_branch` when a branch tournament resolves
+- `context_resolution` when conflicting updates are reconciled explicitly
+
+Each entry has a stable `context_id` cursor. Prompt injection and the session APIs use that cursor instead of timestamps, so ordering and replay stay deterministic under concurrent writes.
+
+## Prompt Behavior
+
+When a session prompts again, it receives only the shared-context entries it has not already consumed.
+
+Injected updates look like this:
+
+```text
+Shared session context updates:
+- context=42 · task_result · build finished · session=ses_...
+Tests passed and the migration was applied.
+```
+
+The session stores its consumed cursor after the message is persisted, so already-delivered updates are not replayed on later prompts.
+
+## Conflict Resolution
+
+If sibling tasks disagree, publish a reconciliation entry instead of relying on informal text.
+
+- Tool: `task_context_reconcile`
+- API: `POST /session/:sessionID/context/reconcile`
+
+Use a reconciliation entry to:
+
+- summarize multiple updates into one authoritative conclusion
+- declare a winner when one source should be treated as canonical
+- preserve or collapse the original source updates
+
+## Observability
+
+These tools expose shared-context stream state directly:
+
+- `task_status`
+- `task_watch`
+- `task_branch_status`
+
+They report:
+
+- current consumed cursor
+- latest known shared-context id
+- unread/pending counts
+- latest published entry for the task or branch
+
+The session API also exposes:
+
+- `GET /session/:sessionID/context`
+- `GET /session/:sessionID/context/status`
+- `POST /session/:sessionID/context/trim`
+
+## Retention
+
+Shared context is retained durably, but old entries are trimmed once they have been acknowledged beyond the configured safety buffer for active sessions in the tree.
+
+Resolution entries are kept longer than ordinary task updates so the durable record preserves the authoritative outcome even after older raw entries are pruned.
+
+## Best Practices
+
+- publish concise, high-signal results from subtasks
+- reconcile conflicting conclusions explicitly
+- treat `context_id` as the stable replay cursor
+- use `task_watch` or `task_branch_status` when you need both runtime progress and publication state

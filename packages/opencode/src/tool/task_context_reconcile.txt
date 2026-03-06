@@ -1,0 +1,5 @@
+Publish an authoritative reconciliation entry for conflicting shared-context updates.
+
+Use this when sibling tasks or branches produce divergent conclusions and future sessions need a single explicit resolution.
+
+Pass the shared context entry ids to reconcile, a resolution body, and optionally a winner context/session when one source should be treated as authoritative.

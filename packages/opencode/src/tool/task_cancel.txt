@@ -1,0 +1,5 @@
+Cancel a background subagent task started with the task tool.
+
+Use this when a task is no longer needed or is heading in the wrong direction.
+
+Pass the task_id returned by the task tool.

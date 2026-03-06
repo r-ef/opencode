@@ -1,0 +1,6 @@
+Get the current status of a subagent task started with the task tool.
+
+Use this to check whether a background subagent is still running or finished,
+to retrieve the latest text result when available, and to see whether the task has already published shared-context updates back to the root session tree.
+
+Pass the task_id returned by the task tool.
