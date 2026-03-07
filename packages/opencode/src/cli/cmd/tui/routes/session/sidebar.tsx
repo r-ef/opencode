@@ -1,5 +1,5 @@
 import { useSync } from "@tui/context/sync"
-import { createMemo, For, Show, Switch, Match } from "solid-js"
+import { createMemo, createResource, For, Show, Switch, Match, onCleanup } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useTheme } from "../../context/theme"
 import { Locale } from "@/util/locale"
@@ -10,10 +10,13 @@ import { Installation } from "@/installation"
 import { useKeybind } from "../../context/keybind"
 import { useDirectory } from "../../context/directory"
 import { useKV } from "../../context/kv"
+import { useSDK } from "../../context/sdk"
 import { TodoItem } from "../../component/todo-item"
+import * as coordfmt from "@tui/util/coordination"
 
 export function Sidebar(props: { sessionID: string; overlay?: boolean }) {
   const sync = useSync()
+  const sdk = useSDK()
   const { theme } = useTheme()
   const session = createMemo(() => sync.session.get(props.sessionID)!)
   const diff = createMemo(() => sync.data.session_diff[props.sessionID] ?? [])
@@ -62,6 +65,20 @@ export function Sidebar(props: { sessionID: string; overlay?: boolean }) {
 
   const directory = useDirectory()
   const kv = useKV()
+  const [coord, { refetch: refetchCoord }] = createResource(
+    () => props.sessionID,
+    async (id) => (id ? (await sdk.client.session.coordination({ sessionID: id, limit: 8 })).data ?? [] : []),
+  )
+
+  const openCoord = createMemo(() => coordfmt.open(coord() ?? []))
+
+  const recentCoord = createMemo(() => coordfmt.recent(coord() ?? []))
+
+  const stop = sdk.event.on("session.coordination", (evt) => {
+    if (evt.properties.info.root_session_id !== session()?.rootID) return
+    void refetchCoord()
+  })
+  onCleanup(stop)
 
   const hasProviders = createMemo(() =>
     sync.data.provider.some((x) => x.id !== "opencode" || Object.values(x.models).some((y) => y.cost?.input !== 0)),
@@ -106,6 +123,28 @@ export function Sidebar(props: { sessionID: string; overlay?: boolean }) {
               <text fg={theme.textMuted}>{context()?.percentage ?? 0}% used</text>
               <text fg={theme.textMuted}>{cost()} spent</text>
             </box>
+            <Show when={recentCoord().length > 0}>
+              <box>
+                <text fg={theme.text}>
+                  <b>Coordination</b>
+                </text>
+                <Show when={openCoord().length > 0}>
+                  <text fg={theme.textMuted}>{openCoord().length} open</text>
+                </Show>
+                <For each={recentCoord()}>
+                  {(item) => (
+                    <box flexDirection="column">
+                      <text fg={theme.textMuted} wrapMode="word">
+                        {coordfmt.line(item)}
+                      </text>
+                      <text fg={theme.textMuted} wrapMode="word">
+                        {item.body}
+                      </text>
+                    </box>
+                  )}
+                </For>
+              </box>
+            </Show>
             <Show when={mcpEntries().length > 0}>
               <box>
                 <box

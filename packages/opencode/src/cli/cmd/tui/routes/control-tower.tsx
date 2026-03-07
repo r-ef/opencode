@@ -10,7 +10,8 @@ import { useToast } from "@tui/ui/toast"
 import { useDialog } from "@tui/ui/dialog"
 import { useKeybind } from "@tui/context/keybind"
 import { useExit } from "@tui/context/exit"
-import type { Message, PermissionRequest, QuestionInfo, QuestionRequest, Session, SessionStatus, Todo, ToolPart } from "@opencode-ai/sdk/v2"
+import * as coordfmt from "@tui/util/coordination"
+import type { Message, PermissionRequest, QuestionInfo, QuestionRequest, Session, SessionStatus, TaskBranchRun, TaskEvent, Todo, ToolPart } from "@opencode-ai/sdk/v2"
 import { createStore } from "solid-js/store"
 import { createEffect, createMemo, createResource, For, Match, onCleanup, onMount, Show, Switch } from "solid-js"
 
@@ -71,6 +72,7 @@ type Run = {
     name: string
     sessionID: string
     status: SessionStatus
+    state: TaskBranchRun["branches"][number]["status"]
     row?: Row
   }[]
   win?: {
@@ -78,7 +80,8 @@ type Run = {
     sessionId?: string
   } | null
   background: boolean
-  state: "running" | "done" | "error"
+  state: TaskBranchRun["status"]
+  applied?: TaskBranchRun["applied"]
   time: number
 }
 
@@ -141,6 +144,120 @@ function note(req: PermissionRequest) {
   }
   if (req.patterns.length > 0) return `${req.permission} ${req.patterns[0]}`
   return req.permission
+}
+
+function runEvent(item: TaskEvent) {
+  if (item.type === "progress" && item.progress) {
+    if (item.progress.kind === "branch_started") return `${item.progress.name} started`
+    if (item.progress.kind === "branch_completed") return `${item.progress.name} completed`
+    if (item.progress.kind === "branch_error") return `${item.progress.name} failed${item.progress.error ? `: ${item.progress.error}` : ""}`
+    if (item.progress.kind === "branch_cancelled") return `${item.progress.name} cancelled`
+    if (item.progress.kind === "branch_tool_started") {
+      const title = item.progress.title ? `: ${item.progress.title}` : ""
+      return `${item.progress.name} running ${item.progress.tool}${title}`
+    }
+    if (item.progress.kind === "branch_tool_completed") return `${item.progress.name} finished ${item.progress.tool}`
+    if (item.progress.kind === "branch_tool_error") return `${item.progress.name} ${item.progress.tool} failed: ${item.progress.error}`
+    if (item.progress.kind === "branch_reasoning") return `${item.progress.name} thinking: ${item.progress.text}`
+    if (item.progress.kind === "branch_text") return `${item.progress.name}: ${item.progress.text}`
+    if (item.progress.kind === "branch_context_published") return `${item.progress.name} published ${item.progress.event}`
+  }
+  if (item.type === "winner" && item.data?.["winner"]) return `Winner selected: ${String(item.data["winner"])}`
+  if (item.type === "applied") {
+    const state = item.data?.["status"]
+    const branch = String(item.data?.["branch"] ?? "")
+    if (state === "running") return `Applying ${branch}`
+    if (state === "completed") return `Applied ${branch}`
+  }
+  if (item.type === "apply_error") return `Apply failed: ${String(item.data?.["error"] ?? item.data?.["branch"] ?? "")}`
+  if (item.type === "completed") return "Run completed"
+  if (item.type === "cancelled") return "Run cancelled"
+  if (item.type === "interrupted") return "Run interrupted"
+  if (item.type === "error") return `Run failed${item.data?.["error"] ? `: ${String(item.data["error"])}` : ""}`
+}
+
+function runPatch(run: TaskBranchRun, item: TaskEvent): TaskBranchRun {
+  const next = {
+    ...run,
+    updated: Math.max(run.updated, item.time),
+  } satisfies TaskBranchRun
+
+  const progress = item.type === "progress" ? item.progress : undefined
+
+  if (progress) {
+    if (progress.kind === "branch_completed") {
+      return {
+        ...next,
+        branches: next.branches.map((row) =>
+          row.sessionId === progress.sessionId ? { ...row, status: "completed", error: undefined } : row,
+        ),
+      }
+    }
+    if (progress.kind === "branch_error") {
+      return {
+        ...next,
+        branches: next.branches.map((row) =>
+          row.sessionId === progress.sessionId
+            ? { ...row, status: "error", error: progress.error ?? row.error }
+            : row,
+        ),
+      }
+    }
+    if (progress.kind === "branch_cancelled") {
+      return {
+        ...next,
+        branches: next.branches.map((row) =>
+          row.sessionId === progress.sessionId ? { ...row, status: "cancelled" } : row,
+        ),
+      }
+    }
+    return next
+  }
+
+  if (item.type === "winner") {
+    const id = typeof item.data?.["winner"] === "string" ? item.data["winner"] : undefined
+    const row = next.branches.find((item) => item.sessionId === id)
+    return {
+      ...next,
+      winner: id
+        ? {
+            name: row?.name ?? id,
+            sessionId: id,
+            score: next.winner?.sessionId === id ? next.winner.score : 0,
+            confidence: next.winner?.sessionId === id ? next.winner.confidence : 0,
+            reason: next.winner?.sessionId === id ? next.winner.reason : "",
+          }
+        : null,
+    }
+  }
+
+  if (item.type === "applied" || item.type === "apply_error") {
+    const id = typeof item.data?.["branch"] === "string" ? item.data["branch"] : undefined
+    const row = next.branches.find((item) => item.sessionId === id)
+    return {
+      ...next,
+      applied: id
+        ? {
+            status: item.type === "apply_error" ? "error" : item.data?.["status"] === "running" ? "running" : "completed",
+            name: row?.name ?? id,
+            sessionId: id,
+            files: next.applied?.sessionId === id ? next.applied.files : 0,
+            time: item.time,
+            error: typeof item.data?.["error"] === "string" ? item.data["error"] : undefined,
+          }
+        : next.applied,
+    }
+  }
+
+  if (item.type === "completed" || item.type === "cancelled" || item.type === "interrupted" || item.type === "error") {
+    return {
+      ...next,
+      status: item.type,
+      error: typeof item.data?.["error"] === "string" ? item.data["error"] : next.error,
+    }
+  }
+
+  return next
 }
 
 function cut(input?: string, size = 220) {
@@ -326,6 +443,43 @@ export function ControlTower() {
     wid: undefined as string | undefined,
     tid: undefined as string | undefined,
   })
+  const [job, setJob] = createStore({
+    list: [] as TaskBranchRun[],
+  })
+  const [evt, setEvt] = createStore({} as Record<string, { cursor: number; rows: TaskEvent[] }>)
+  const feed = new Map<string, { stop: boolean }>()
+
+  const upsertRun = (info: TaskBranchRun) => {
+    setJob("list", (list) => {
+      const next = list.filter((item) => item.id !== info.id)
+      next.push(info)
+      next.sort((a, b) => b.updated - a.updated || b.id.localeCompare(a.id))
+      return next
+    })
+  }
+
+  const loadRun = async () => {
+    const result = await sdk.client.taskBranch.list({ limit: 100 }).catch(() => undefined)
+    if (!result?.data) return
+    setJob("list", result.data)
+  }
+
+  createEffect(() => {
+    directory()
+    void loadRun()
+    const timer = setInterval(() => {
+      void loadRun()
+    }, 30_000)
+    onCleanup(() => clearInterval(timer))
+  })
+
+  createEffect(() => {
+    directory()
+    const stop = sdk.event.on("task.branch.updated", (e) => {
+      upsertRun(e.properties.info)
+    })
+    onCleanup(stop)
+  })
 
   const rows = createMemo(() =>
     sync.data.session
@@ -471,62 +625,122 @@ export function ControlTower() {
 
   const task = createMemo(() => {
     const out: Run[] = []
-    const seen = new Set<string>()
 
-    for (const fam of fams()) {
-      const root = fam.root
-      const msgs = sync.data.message[root.info.id] ?? []
-      for (const msg of msgs) {
-        const parts = sync.data.part[msg.id] ?? []
-        for (const part of parts) {
-          if (part.type !== "tool" || part.tool !== "task_branch") continue
-          if (part.state.status === "pending") continue
-          const meta = (part.state.status === "running" || part.state.status === "completed" || part.state.status === "error"
-            ? part.state.metadata
-            : undefined) as
-            | {
-                branchId?: string
-                background?: boolean
-                branches?: { name?: string; sessionId?: string }[]
-                winner?: { name?: string; sessionId?: string } | null
-              }
-            | undefined
-          const id = meta?.branchId ?? part.id
-          if (seen.has(id)) continue
-          seen.add(id)
-          const list = (meta?.branches ?? []).flatMap((item) => {
-            if (!item.sessionId) return []
-            return [
-              {
-                name: item.name ?? item.sessionId,
-                sessionID: item.sessionId,
-                status: sync.data.session_status[item.sessionId] ?? idle,
-                row: by().get(item.sessionId),
-              },
-            ]
-          })
-          out.push({
-            id,
-            root,
-            title:
-              (("title" in part.state && typeof part.state.title === "string" && part.state.title) ||
-                (typeof part.state.input.description === "string" && part.state.input.description) ||
-                "Branch run"),
-            rows: list,
-            win: meta?.winner,
-            background: meta?.background === true,
-            state: part.state.status === "error" ? "error" : part.state.status === "completed" ? "done" : "running",
-            time: Math.max(
-              msg.time.created,
-              ...list.map((item) => item.row?.info.time.updated ?? 0),
-            ),
-          })
-        }
-      }
+    for (const item of job.list) {
+      const root = by().get(item.sessionId)
+      if (!root) continue
+      const list = item.branches.map((entry) => ({
+        name: entry.name,
+        sessionID: entry.sessionId,
+        status: sync.data.session_status[entry.sessionId] ?? idle,
+        state: entry.status,
+        row: by().get(entry.sessionId),
+      }))
+      out.push({
+        id: item.id,
+        root,
+        title: item.description,
+        rows: list,
+        win: item.winner,
+        background: item.background,
+        state: item.status,
+        applied: item.applied,
+        time: item.updated,
+      })
     }
 
     return out.toSorted((a, b) => b.time - a.time || b.id.localeCompare(a.id))
   })
+
+  const pushEvt = (id: string, rows: TaskEvent[]) => {
+    if (rows.length === 0) return
+    setEvt(id, (cur) => {
+      const prev = cur?.rows ?? []
+      const seen = new Set(prev.map((item) => item.id))
+      return {
+        cursor: rows.at(-1)?.id ?? cur?.cursor ?? 0,
+        rows: [...prev, ...rows.filter((item) => !seen.has(item.id))].slice(-40),
+      }
+    })
+  }
+
+  const patchRun = (id: string, rows: TaskEvent[]) => {
+    if (rows.length === 0) return
+    setJob("list", (list) =>
+      list.map((item) => {
+        if (item.id !== id) return item
+        return rows.reduce((acc, row) => runPatch(acc, row), item)
+      }),
+    )
+  }
+
+  const activity = (run?: Run) =>
+    !run
+      ? []
+      : (evt[run.id]?.rows ?? [])
+          .map((item) => runEvent(item))
+          .filter((item): item is string => Boolean(item))
+          .slice(-3)
+          .reverse()
+
+  onCleanup(() => {
+    for (const item of feed.values()) item.stop = true
+    feed.clear()
+  })
+
+  createEffect(() => {
+    const next = task()
+      .slice(0, 8)
+      .map((run) => ({
+        id: run.id,
+        dir: run.root.info.directory,
+      }))
+    const keep = new Set(next.map((item) => item.id))
+
+    for (const [id, item] of feed) {
+      if (keep.has(id)) continue
+      item.stop = true
+      feed.delete(id)
+    }
+
+    next.forEach((run) => {
+      if (feed.has(run.id)) return
+      const item = { stop: false }
+      feed.set(run.id, item)
+      const loop = async (cursor = evt[run.id]?.cursor ?? 0) => {
+        while (!item.stop) {
+          const result = await sdk.client.taskBranch
+            .events({
+              branchID: run.id,
+              directory: run.dir,
+              cursor,
+              limit: 40,
+              wait_ms: 30000,
+            })
+            .catch(() => undefined)
+          if (item.stop) return
+          const rows = result?.data ?? []
+          pushEvt(run.id, rows)
+          patchRun(run.id, rows)
+          cursor = rows.at(-1)?.id ?? cursor
+        }
+      }
+      void loop()
+    })
+  })
+
+  const apply = (run?: Run) => {
+    if (run?.applied?.status === "running") return "running" as const
+    if (run?.applied?.status === "completed") return "done" as const
+    if (run?.applied?.status === "error") return "error" as const
+    return "idle" as const
+  }
+
+  const best = (run?: Run) => {
+    const id = run?.win?.sessionId
+    if (id) return by().get(id) ?? run?.rows.find((item) => item.sessionID === id)?.row ?? run?.root
+    return run?.rows[0]?.row ?? run?.root
+  }
 
   createEffect(() => {
     for (const run of task().slice(0, 8)) {
@@ -681,6 +895,28 @@ export function ControlTower() {
     if (win) return by().get(win) ?? run()?.rows.find((item) => item.sessionID === win)?.row ?? run()?.root
     return run()?.rows[0]?.row ?? run()?.root
   })
+  const root = createMemo(() => {
+    const row = current()
+    if (!row) return
+    return by().get(row.info.rootID) ?? row
+  })
+  const [coord, { refetch: refetchCoord }] = createResource(
+    () => root()?.info.rootID,
+    async (sessionID) => {
+      if (!sessionID) return []
+      return (await sdk.client.session.coordination({ sessionID, limit: 8 })).data ?? []
+    },
+  )
+
+  createEffect(() => {
+    const stop = sdk.event.on("session.coordination", (evt) => {
+      const row = root()
+      if (!row) return
+      if (evt.properties.info.root_session_id !== row.info.rootID) return
+      void refetchCoord()
+    })
+    onCleanup(stop)
+  })
 
   const msgs = createMemo(() => {
     const id = current()?.info.id
@@ -726,6 +962,7 @@ export function ControlTower() {
     const model = sync.data.provider.find((item) => item.id === msg.providerID)?.models[msg.modelID]
     return `${total.toLocaleString()} tokens${model?.limit.context ? ` · ${Math.round((total / model.limit.context) * 100)}%` : ""}`
   })
+  const openCoord = createMemo(() => coordfmt.open(coord() ?? []))
 
   const stats = createMemo(() => ({
     live: rows().filter((row) => row.status.type !== "idle").length,
@@ -770,6 +1007,41 @@ export function ControlTower() {
     route.navigate({ type: "session", sessionID: id })
   }
 
+  const applyRun = async (run?: Run) => {
+    if (!run?.win?.sessionId) return
+    const state = apply(run)
+    if (state === "running" || state === "done") return
+    await sdk.client.taskBranch
+      .apply({
+        branchID: run.id,
+        branch: run.win.sessionId,
+      })
+      .then(() => {
+        toast.show({
+          variant: "success",
+          message: state === "error" ? "Winner apply retried" : "Winner applied",
+        })
+      })
+      .catch(fail)
+    await loadRun()
+  }
+
+  const cancelRun = async (run?: Run) => {
+    if (!run || run.state !== "running") return
+    await sdk.client.taskBranch
+      .cancel({
+        branchID: run.id,
+      })
+      .then(() => {
+        toast.show({
+          variant: "info",
+          message: "Branch run cancelled",
+        })
+      })
+      .catch(fail)
+    await loadRun()
+  }
+
   const once = async () => {
     const req = item()
     if (!req || req.kind !== "permission") return
@@ -804,9 +1076,7 @@ export function ControlTower() {
       if (row) return open(row)
       return void fresh(lane()?.dir)
     }
-    const win = run()?.win?.sessionId
-    if (win) return open(by().get(win) ?? run()?.rows.find((item) => item.sessionID === win)?.row ?? run()?.root)
-    return open(run()?.rows[0]?.row ?? run()?.root)
+    return open(best(run()))
   }
 
   const qpick = (idx = store.pick) => {
@@ -999,6 +1269,20 @@ export function ControlTower() {
       evt.preventDefault()
       evt.stopPropagation()
       jump()
+      return
+    }
+
+    if (store.pane === "task" && evt.name === "c") {
+      evt.preventDefault()
+      evt.stopPropagation()
+      void cancelRun(run())
+      return
+    }
+
+    if (store.pane === "task" && evt.name === "p") {
+      evt.preventDefault()
+      evt.stopPropagation()
+      void applyRun(run())
       return
     }
 
@@ -1386,7 +1670,7 @@ export function ControlTower() {
                       const bg = () => theme.backgroundPanel
                       const fg = () => (on() ? theme.primary : theme.text)
                       const muted = () => (on() ? theme.text : theme.textMuted)
-                      const done = () => entry.rows.filter((item) => item.status.type === "idle").length
+                      const done = () => entry.rows.filter((item) => item.state !== "running" && item.state !== "pending").length
                       return (
                         <box
                           id={`task:${entry.id}`}
@@ -1405,9 +1689,24 @@ export function ControlTower() {
                             <text fg={fg()} wrapMode="word">
                               <b>{entry.title}</b>
                             </text>
-                            <Chip text={entry.state} tone={entry.state === "running" ? "busy" : entry.state === "error" ? "retry" : "base"} />
+                            <Chip
+                              text={entry.state}
+                              tone={entry.state === "running" ? "busy" : entry.state === "error" || entry.state === "interrupted" ? "retry" : "base"}
+                            />
                             <Show when={entry.background}>
                               <Chip text="background" tone="base" />
+                            </Show>
+                            <Show when={entry.win?.sessionId}>
+                              <Chip text="winner" tone="busy" />
+                            </Show>
+                            <Show when={apply(entry) === "running"}>
+                              <Chip text="applying" tone="busy" />
+                            </Show>
+                            <Show when={apply(entry) === "done"}>
+                              <Chip text="applied" tone="base" />
+                            </Show>
+                            <Show when={apply(entry) === "error"}>
+                              <Chip text="apply blocked" tone="retry" />
                             </Show>
                           </box>
                           <text fg={muted()} wrapMode="word">
@@ -1416,19 +1715,20 @@ export function ControlTower() {
                           <For each={entry.rows}>
                             {(item) => (
                               <text fg={muted()} wrapMode="word">
-                                • <span style={{ fg: fg() }}>{item.name}</span> · {stat(item.status)}
+                                • <span style={{ fg: fg() }}>{item.name}</span> · {item.state}
                                 <Show when={entry.win?.sessionId === item.sessionID}> · winner</Show>
                               </text>
                             )}
                           </For>
+                          <Show when={activity(entry)[0]}>
+                            {(item) => <text fg={muted()} wrapMode="word">recent: {item()}</text>}
+                          </Show>
                           <box flexDirection="row" gap={1} flexWrap="wrap">
                             <text
                               fg={on() ? theme.primary : theme.text}
                               onMouseUp={(evt) => {
                                 evt.stopPropagation()
-                                const id = entry.win?.sessionId
-                                if (id) return open(by().get(id) ?? entry.rows.find((item) => item.sessionID === id)?.row ?? entry.root)
-                                open(entry.rows[0]?.row ?? entry.root)
+                                open(best(entry))
                               }}
                             >
                               open best
@@ -1449,7 +1749,35 @@ export function ControlTower() {
                                 </text>
                               </>
                             </Show>
-                            <text fg={muted()}>· enter open best branch · w winner</text>
+                            <Show when={entry.state === "running"}>
+                              <>
+                                <text fg={muted()}>·</text>
+                                <text
+                                  fg={theme.warning}
+                                  onMouseUp={(evt) => {
+                                    evt.stopPropagation()
+                                    void cancelRun(entry)
+                                  }}
+                                >
+                                  cancel
+                                </text>
+                              </>
+                            </Show>
+                            <Show when={entry.win?.sessionId}>
+                              <>
+                                <text fg={muted()}>·</text>
+                                <text
+                                  fg={apply(entry) === "done" ? muted() : on() ? theme.primary : theme.text}
+                                  onMouseUp={(evt) => {
+                                    evt.stopPropagation()
+                                    void applyRun(entry)
+                                  }}
+                                >
+                                  {apply(entry) === "done" ? "applied" : apply(entry) === "error" ? "retry apply" : "apply"}
+                                </text>
+                              </>
+                            </Show>
+                            <text fg={muted()}>· enter open best · w winner · c cancel · p apply</text>
                           </box>
                         </box>
                       )
@@ -1525,6 +1853,57 @@ export function ControlTower() {
                     )}
                   </Show>
 
+                  <Show when={store.pane === "task" && run()}>
+                    {(entry) => (
+                      <>
+                        <box height={1} />
+                        <text fg={theme.text}>
+                          <b>Task controls</b>
+                        </text>
+                        <text fg={theme.textMuted} wrapMode="word">
+                          {`${entry().rows.length} branches · ${entry().state} · ${apply(entry())}`}
+                        </text>
+                        <box flexDirection="row" gap={1} flexWrap="wrap">
+                          <text fg={theme.primary} onMouseUp={() => open(best(entry()))}>
+                            open best
+                          </text>
+                          <Show when={entry().win?.sessionId}>
+                            <>
+                              <text fg={theme.textMuted}>·</text>
+                              <text fg={theme.primary} onMouseUp={() => open(best(entry()))}>
+                                winner
+                              </text>
+                            </>
+                          </Show>
+                          <Show when={entry().state === "running"}>
+                            <>
+                              <text fg={theme.textMuted}>·</text>
+                              <text fg={theme.warning} onMouseUp={() => void cancelRun(entry())}>
+                                cancel
+                              </text>
+                            </>
+                          </Show>
+                          <Show when={entry().win?.sessionId}>
+                            <>
+                              <text fg={theme.textMuted}>·</text>
+                              <text fg={apply(entry()) === "done" ? theme.textMuted : theme.primary} onMouseUp={() => void applyRun(entry())}>
+                                {apply(entry()) === "done" ? "applied" : apply(entry()) === "error" ? "retry apply" : "apply"}
+                              </text>
+                            </>
+                          </Show>
+                        </box>
+                        <text fg={theme.textMuted}>w winner · c cancel run · p apply winner</text>
+                        <Show when={activity(entry()).length > 0}>
+                          <box height={1} />
+                          <text fg={theme.text}>
+                            <b>Recent activity</b>
+                          </text>
+                          <For each={activity(entry())}>{(item) => <text fg={theme.textMuted} wrapMode="word">• {item}</text>}</For>
+                        </Show>
+                      </>
+                    )}
+                  </Show>
+
                   <Show when={ctx() || last()}>
                     <box height={1} />
                     <text fg={theme.text}>
@@ -1540,6 +1919,26 @@ export function ControlTower() {
                     <Show when={ctx()}>
                       <text fg={theme.textMuted}>{ctx()}</text>
                     </Show>
+                  </Show>
+
+                  <Show when={(coord() ?? []).length > 0}>
+                    <box height={1} />
+                    <text fg={theme.text}>
+                      <b>Coordination</b>
+                    </text>
+                    <text fg={theme.textMuted}>{openCoord().length} open</text>
+                    <For each={coordfmt.recent(coord() ?? [])}>
+                      {(item) => (
+                        <box flexDirection="column">
+                          <text fg={theme.textMuted} wrapMode="word">
+                            • <span style={{ fg: theme.text }}>{coordfmt.line(item)}</span>
+                          </text>
+                          <text fg={theme.textMuted} wrapMode="word">
+                            {item.body}
+                          </text>
+                        </box>
+                      )}
+                    </For>
                   </Show>
 
                   <Show when={todos().length > 0}>
@@ -1607,7 +2006,9 @@ export function ControlTower() {
         <text fg={theme.textMuted}>enter open</text>
         <text fg={theme.textMuted}>x stop</text>
         <text fg={theme.textMuted}>b branch</text>
+        <text fg={theme.textMuted}>c cancel run</text>
         <text fg={theme.textMuted}>n new</text>
+        <text fg={theme.textMuted}>p apply winner</text>
         <text fg={theme.textMuted}>o/y allow</text>
         <text fg={theme.textMuted}>a pick</text>
         <text fg={theme.textMuted}>s submit</text>
