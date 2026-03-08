@@ -14,7 +14,15 @@ import { Installation } from "../installation"
 
 import { Database, NotFoundError, eq, and, or, gte, gt, isNull, desc, asc, like, inArray, lt } from "../storage/db"
 import type { SQL } from "../storage/db"
-import { SessionTable, MessageTable, PartTable, SessionContextTable, SessionContextStateTable } from "./session.sql"
+import {
+  SessionTable,
+  MessageTable,
+  PartTable,
+  SessionContextTable,
+  SessionContextStateTable,
+  SessionCoordinationTable,
+  SessionCoordinationStateTable,
+} from "./session.sql"
 import { ProjectTable } from "../project/project.sql"
 import { Storage } from "@/storage/storage"
 import { Log } from "../util/log"
@@ -260,6 +268,56 @@ export namespace Session {
   })
   export type ContextTrim = z.infer<typeof ContextTrim>
 
+  export const CoordinationKind = z.enum([
+    "request",
+    "update",
+    "answer",
+    "claim",
+    "release",
+    "conflict",
+    "resolution",
+  ])
+  export type CoordinationKind = z.infer<typeof CoordinationKind>
+
+  export const CoordinationStatus = z.enum(["open", "claimed", "answered", "resolved", "cancelled"])
+  export type CoordinationStatus = z.infer<typeof CoordinationStatus>
+
+  export const CoordinationInfo = z.object({
+    id: z.number().int(),
+    root_session_id: z.string(),
+    from_session_id: z.string(),
+    to_session_id: z.string().optional(),
+    to_agent: z.string().optional(),
+    request_id: z.string().optional(),
+    kind: CoordinationKind,
+    status: CoordinationStatus,
+    title: z.string().optional(),
+    body: z.string(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
+    time_created: z.number().int(),
+    time_updated: z.number().int(),
+  })
+  export type CoordinationInfo = z.infer<typeof CoordinationInfo>
+
+  export const CoordinationState = z.object({
+    session_id: z.string(),
+    root_session_id: z.string(),
+    cursor: z.number().int(),
+    time_created: z.number().int(),
+    time_updated: z.number().int(),
+  })
+  export type CoordinationState = z.infer<typeof CoordinationState>
+
+  export const CoordinationFeed = z.object({
+    session_id: z.string(),
+    root_session_id: z.string(),
+    cursor: z.number().int(),
+    latest: z.number().int(),
+    unread: z.number().int(),
+    entries: CoordinationInfo.array(),
+  })
+  export type CoordinationFeed = z.infer<typeof CoordinationFeed>
+
   export const Event = {
     Created: BusEvent.define(
       "session.created",
@@ -303,6 +361,13 @@ export namespace Session {
       "session.context.trimmed",
       z.object({
         info: ContextTrim,
+      }),
+    ),
+    Coordination: BusEvent.define(
+      "session.coordination",
+      z.object({
+        action: z.enum(["created", "updated", "resolved"]),
+        info: CoordinationInfo,
       }),
     ),
   }
@@ -513,7 +578,9 @@ export namespace Session {
               ...(parentID && { parentID }),
             })
 
-            for (const item of msg.parts.map((part) => clonePart({ part, from: original.directory, to: session.directory }))) {
+            for (const item of msg.parts.map((part) =>
+              clonePart({ part, from: original.directory, to: session.directory }),
+            )) {
               await updatePart({
                 ...item,
                 id: Identifier.ascending("part"),
@@ -599,7 +666,11 @@ export namespace Session {
       )
     })
     const cfg = await Config.get()
-    if (result.kind === "interactive" && !result.branchFromSessionID && (Flag.OPENCODE_AUTO_SHARE || cfg.share === "auto"))
+    if (
+      result.kind === "interactive" &&
+      !result.branchFromSessionID &&
+      (Flag.OPENCODE_AUTO_SHARE || cfg.share === "auto")
+    )
       share(result.id).catch(() => {
         // Silently ignore sharing errors during session creation
       })
@@ -611,7 +682,7 @@ export namespace Session {
 
   export function plan(input: { slug: string; time: { created: number } }) {
     const base = Instance.project.vcs
-      ? path.join(Instance.worktree, ".opencode", "plans")
+      ? path.join(Instance.worktree, ".selene", "plans")
       : path.join(Global.Path.data, "plans")
     return path.join(base, [input.time.created, input.slug].join("-") + ".md")
   }
@@ -980,6 +1051,34 @@ export namespace Session {
     return ContextState.parse(row)
   }
 
+  function parseCoord(row: typeof SessionCoordinationTable.$inferSelect) {
+    return CoordinationInfo.parse({
+      ...row,
+      to_session_id: row.to_session_id ?? undefined,
+      to_agent: row.to_agent ?? undefined,
+      request_id: row.request_id ?? undefined,
+      title: row.title ?? undefined,
+      metadata: row.metadata ?? undefined,
+    })
+  }
+
+  function parseCoordState(row: typeof SessionCoordinationStateTable.$inferSelect) {
+    return CoordinationState.parse(row)
+  }
+
+  function coordStatus(kind: CoordinationKind, status?: CoordinationStatus) {
+    if (status) return status
+    if (kind === "claim") return "claimed" as const
+    if (kind === "answer") return "answered" as const
+    if (kind === "resolution") return "resolved" as const
+    return "open" as const
+  }
+
+  function coordAction(info: CoordinationInfo) {
+    if (info.status === "resolved") return "resolved" as const
+    return "created" as const
+  }
+
   const contextKeep = new Set(["context_resolution", "context_summary"])
 
   export const contextState = fn(Identifier.schema("session"), async (session_id) => {
@@ -1006,7 +1105,11 @@ export namespace Session {
     async (input) => {
       const top = await root(input.session_id)
       const prev = Database.use((db) =>
-        db.select().from(SessionContextStateTable).where(eq(SessionContextStateTable.session_id, input.session_id)).get(),
+        db
+          .select()
+          .from(SessionContextStateTable)
+          .where(eq(SessionContextStateTable.session_id, input.session_id))
+          .get(),
       )
       const now = Date.now()
       const next = Math.max(prev?.cursor ?? 0, input.cursor)
@@ -1106,7 +1209,7 @@ export namespace Session {
           .all(),
       )
       return rows
-        .filter((row) => (input.include_self ?? true ? true : row.session_id !== input.session_id))
+        .filter((row) => ((input.include_self ?? true) ? true : row.session_id !== input.session_id))
         .filter((row) => (input.source_session_id ? row.session_id === input.source_session_id : true))
         .filter((row) => (input.kind ? row.data.kind === input.kind : true))
         .slice(0, limit)
@@ -1134,7 +1237,9 @@ export namespace Session {
       const latest = rows.at(-1)
       const unread = rows.filter((row) => row.id > state.cursor)
       const src = input.source_session_id ?? input.session_id
-      const own = rows.filter((row) => row.session_id === src).filter((row) => (input.kind ? row.data.kind === input.kind : true))
+      const own = rows
+        .filter((row) => row.session_id === src)
+        .filter((row) => (input.kind ? row.data.kind === input.kind : true))
       return ContextStats.parse({
         session_id: input.session_id,
         root_session_id: top.id,
@@ -1164,7 +1269,12 @@ export namespace Session {
       const top = await root(input.session_id)
       const ids = [...new Set(input.sources)].sort((a, b) => a - b)
       const rows = Database.use((db) =>
-        db.select().from(SessionContextTable).where(inArray(SessionContextTable.id, ids)).orderBy(asc(SessionContextTable.id)).all(),
+        db
+          .select()
+          .from(SessionContextTable)
+          .where(inArray(SessionContextTable.id, ids))
+          .orderBy(asc(SessionContextTable.id))
+          .all(),
       )
       if (rows.length !== ids.length) {
         const miss = ids.filter((id) => !rows.find((row) => row.id === id))
@@ -1224,11 +1334,7 @@ export namespace Session {
         ids.length === 0
           ? []
           : Database.use((db) =>
-              db
-                .select()
-                .from(SessionContextStateTable)
-                .where(inArray(SessionContextStateTable.session_id, ids))
-                .all(),
+              db.select().from(SessionContextStateTable).where(inArray(SessionContextStateTable.session_id, ids)).all(),
             )
       const cuts = states.map((row) => row.cursor).filter((row) => row > 0)
       const cut = cuts.length ? Math.max(0, Math.min(...cuts) - buffer) : 0
@@ -1247,7 +1353,15 @@ export namespace Session {
 
       Database.use((db) => {
         db.delete(SessionContextTable)
-          .where(and(eq(SessionContextTable.root_session_id, top.id), inArray(SessionContextTable.id, drop.map((row) => row.id))))
+          .where(
+            and(
+              eq(SessionContextTable.root_session_id, top.id),
+              inArray(
+                SessionContextTable.id,
+                drop.map((row) => row.id),
+              ),
+            ),
+          )
           .run()
       })
 
@@ -1265,6 +1379,304 @@ export namespace Session {
         }),
       )
       return info
+    },
+  )
+
+  export const coordinationState = fn(Identifier.schema("session"), async (session_id) => {
+    const top = await root(session_id)
+    const row = Database.use((db) =>
+      db.select().from(SessionCoordinationStateTable).where(eq(SessionCoordinationStateTable.session_id, session_id)).get(),
+    )
+    if (row) return parseCoordState(row)
+    const now = Date.now()
+    return CoordinationState.parse({
+      session_id,
+      root_session_id: top.id,
+      cursor: 0,
+      time_created: now,
+      time_updated: now,
+    })
+  })
+
+  export const coordinationMark = fn(
+    z.object({
+      session_id: Identifier.schema("session"),
+      cursor: z.number().int().min(0),
+    }),
+    async (input) => {
+      const top = await root(input.session_id)
+      const prev = Database.use((db) =>
+        db
+          .select()
+          .from(SessionCoordinationStateTable)
+          .where(eq(SessionCoordinationStateTable.session_id, input.session_id))
+          .get(),
+      )
+      const now = Date.now()
+      const next = Math.max(prev?.cursor ?? 0, input.cursor)
+      if (!prev) {
+        const row = Database.use((db) =>
+          db
+            .insert(SessionCoordinationStateTable)
+            .values({
+              session_id: input.session_id,
+              root_session_id: top.id,
+              cursor: next,
+              time_created: now,
+              time_updated: now,
+            })
+            .returning()
+            .get(),
+        )
+        return parseCoordState(row)
+      }
+      const row = Database.use((db) =>
+        db
+          .update(SessionCoordinationStateTable)
+          .set({
+            root_session_id: top.id,
+            cursor: next,
+            time_updated: now,
+          })
+          .where(eq(SessionCoordinationStateTable.session_id, input.session_id))
+          .returning()
+          .get(),
+      )
+      return parseCoordState(row)
+    },
+  )
+
+  export const coordinationList = fn(
+    z.object({
+      session_id: Identifier.schema("session"),
+      after: z.number().int().default(0).optional(),
+      limit: z.number().int().min(1).max(100).default(20).optional(),
+      source_session_id: Identifier.schema("session").optional(),
+      target_session_id: Identifier.schema("session").optional(),
+      target_agent: z.string().optional(),
+      request_id: z.string().optional(),
+      kind: CoordinationKind.optional(),
+      status: CoordinationStatus.optional(),
+      include_self: z.boolean().optional(),
+    }),
+    async (input) => {
+      const top = await root(input.session_id)
+      const after = input.after ?? 0
+      const limit = input.limit ?? 20
+      const rows = Database.use((db) =>
+        db
+          .select()
+          .from(SessionCoordinationTable)
+          .where(and(eq(SessionCoordinationTable.root_session_id, top.id), gt(SessionCoordinationTable.id, after)))
+          .orderBy(asc(SessionCoordinationTable.id))
+          .all(),
+      )
+      return rows
+        .filter((row) => ((input.include_self ?? true) ? true : row.from_session_id !== input.session_id))
+        .filter((row) => (input.source_session_id ? row.from_session_id === input.source_session_id : true))
+        .filter((row) => (input.target_session_id ? row.to_session_id === input.target_session_id : true))
+        .filter((row) => (input.target_agent ? row.to_agent === input.target_agent : true))
+        .filter((row) => (input.request_id ? row.request_id === input.request_id : true))
+        .filter((row) => (input.kind ? row.kind === input.kind : true))
+        .filter((row) => (input.status ? row.status === input.status : true))
+        .slice(0, limit)
+        .map(parseCoord)
+    },
+  )
+
+  export const coordinationUpdate = fn(
+    z.object({
+      session_id: Identifier.schema("session"),
+      coordination_id: z.number().int().positive(),
+      status: CoordinationStatus.optional(),
+      title: z.string().optional(),
+      body: z.string().optional(),
+      metadata: z.record(z.string(), z.unknown()).optional(),
+    }),
+    async (input) => {
+      const top = await root(input.session_id)
+      const prev = Database.use((db) =>
+        db.select().from(SessionCoordinationTable).where(eq(SessionCoordinationTable.id, input.coordination_id)).get(),
+      )
+      if (!prev) throw new NotFoundError({ message: `Coordination entry not found: ${input.coordination_id}` })
+      if (prev.root_session_id !== top.id) {
+        throw new Error(`Coordination entry must belong to the same root session: ${top.id}`)
+      }
+      const row = Database.use((db) =>
+        db
+          .update(SessionCoordinationTable)
+          .set({
+            status: input.status ?? prev.status,
+            title: input.title ?? prev.title,
+            body: input.body ?? prev.body,
+            metadata: input.metadata ?? prev.metadata,
+            time_updated: Date.now(),
+          })
+          .where(eq(SessionCoordinationTable.id, input.coordination_id))
+          .returning()
+          .get(),
+      )
+      const info = parseCoord(row)
+      Database.effect(() =>
+        Bus.publish(Event.Coordination, {
+          action: info.status === "resolved" ? "resolved" : "updated",
+          info,
+        }),
+      )
+      return info
+    },
+  )
+
+  export const coordinationWrite = fn(
+    z.object({
+      session_id: Identifier.schema("session"),
+      target_session_id: Identifier.schema("session").optional(),
+      target_agent: z.string().optional(),
+      kind: CoordinationKind,
+      status: CoordinationStatus.optional(),
+      title: z.string().optional(),
+      body: z.string(),
+      request_id: z.string().optional(),
+      metadata: z.record(z.string(), z.unknown()).optional(),
+    }),
+    async (input) => {
+      const now = Date.now()
+      const top = await root(input.session_id)
+      if (input.target_session_id) {
+        const target = await get(input.target_session_id)
+        if (target.rootID !== top.id) {
+          throw new Error(`Coordination target must belong to the same root session: ${top.id}`)
+        }
+      }
+      const row = Database.use((db) =>
+        db
+          .insert(SessionCoordinationTable)
+          .values({
+            root_session_id: top.id,
+            from_session_id: input.session_id,
+            to_session_id: input.target_session_id,
+            to_agent: input.target_agent,
+            request_id: input.request_id,
+            kind: input.kind,
+            status: coordStatus(input.kind, input.status),
+            title: input.title,
+            body: input.body,
+            metadata: input.metadata,
+            time_created: now,
+            time_updated: now,
+          })
+          .returning()
+          .get(),
+      )
+      const info = parseCoord(row)
+      Database.effect(() =>
+        Bus.publish(Event.Coordination, {
+          action: coordAction(info),
+          info,
+        }),
+      )
+      const list = await coordSessions({ sessionID: input.session_id, info }).catch(() => [] as string[])
+      await Promise.all(
+        list.map((sessionID) =>
+          SessionPrompt.followup({
+            sessionID,
+            text: [
+              "<system-reminder>",
+              "A sibling session has a collaboration update that may affect your next step.",
+              "Review the latest agent collaboration updates, respond if needed, and continue without waiting indefinitely.",
+              "</system-reminder>",
+            ].join("\n"),
+            metadata: {
+              coordination_id: info.id,
+              request_id: info.request_id,
+              kind: info.kind,
+              status: info.status,
+            },
+          }).catch(() => undefined),
+        ),
+      )
+      return info
+    },
+  )
+
+  async function coordSessions(input: { sessionID: string; info: CoordinationInfo }) {
+    if (input.info.to_session_id) return [input.info.to_session_id]
+    if (!input.info.to_agent) {
+      const top = await root(input.sessionID)
+      return input.sessionID === top.id ? [] : [top.id]
+    }
+    const { TaskRun } = await import("@/task/run")
+    const top = await root(input.sessionID)
+    return TaskRun.list({ rootSessionID: top.id })
+      .then((rows) =>
+        rows
+          .filter((row) => row.sessionID !== input.sessionID)
+          .filter((row) => row.agent === input.info.to_agent)
+          .map((row) => row.sessionID),
+      )
+      .then((rows) => [...new Set(rows)])
+  }
+
+  export const coordinationActionable = fn(
+    z.object({
+      session_id: Identifier.schema("session"),
+      agent: z.string().optional(),
+      limit: z.number().int().min(1).max(100).default(20).optional(),
+    }),
+    async (input) => {
+      const top = await root(input.session_id)
+      const state = await coordinationState(input.session_id)
+      const limit = input.limit ?? 20
+      const rows = Database.use((db) =>
+        db
+          .select()
+          .from(SessionCoordinationTable)
+          .where(and(eq(SessionCoordinationTable.root_session_id, top.id), gt(SessionCoordinationTable.id, state.cursor)))
+          .orderBy(asc(SessionCoordinationTable.id))
+          .all(),
+      )
+      const entries = rows
+        .filter((row) => row.from_session_id !== input.session_id)
+        .filter((row) => {
+          if (row.to_session_id) return row.to_session_id === input.session_id
+          if (row.to_agent) return row.to_agent === input.agent
+          return input.session_id === top.id
+        })
+        .slice(0, limit)
+        .map(parseCoord)
+      return CoordinationFeed.parse({
+        session_id: input.session_id,
+        root_session_id: top.id,
+        cursor: entries.at(-1)?.id ?? state.cursor,
+        latest: rows.at(-1)?.id ?? state.cursor,
+        unread: entries.length,
+        entries,
+      })
+    },
+  )
+
+  export const coordinationThread = fn(
+    z.object({
+      session_id: Identifier.schema("session"),
+      request_id: z.string(),
+      before: z.number().int().positive().optional(),
+      limit: z.number().int().min(1).max(20).default(6).optional(),
+    }),
+    async (input) => {
+      const top = await root(input.session_id)
+      const rows = Database.use((db) =>
+        db
+          .select()
+          .from(SessionCoordinationTable)
+          .where(eq(SessionCoordinationTable.root_session_id, top.id))
+          .orderBy(asc(SessionCoordinationTable.id))
+          .all(),
+      )
+      return rows
+        .filter((row) => row.request_id === input.request_id)
+        .filter((row) => (input.before ? row.id <= input.before : true))
+        .slice(-(input.limit ?? 6))
+        .map(parseCoord)
     },
   )
 
@@ -1303,6 +1715,20 @@ export namespace Session {
           time_updated: now,
         })
         .where(eq(SessionContextStateTable.root_session_id, session.id))
+        .run()
+      db.update(SessionCoordinationTable)
+        .set({
+          root_session_id: next.id,
+          time_updated: now,
+        })
+        .where(eq(SessionCoordinationTable.root_session_id, session.id))
+        .run()
+      db.update(SessionCoordinationStateTable)
+        .set({
+          root_session_id: next.id,
+          time_updated: now,
+        })
+        .where(eq(SessionCoordinationStateTable.root_session_id, session.id))
         .run()
       const rows = db.select().from(SessionTable).where(eq(SessionTable.root_id, next.id)).all().map(fromRow)
       Database.effect(() => rows.forEach((info) => Bus.publish(Event.Updated, { info })))

@@ -463,6 +463,9 @@ export type StepFinishPart = {
   reason: string
   snapshot?: string
   cost: number
+  metadata?: {
+    [key: string]: unknown
+  }
   tokens: {
     total?: number
     input: number
@@ -726,6 +729,266 @@ export type EventWorktreeFailed = {
   }
 }
 
+export type TaskRunStatus = "running" | "completed" | "error" | "cancelled" | "interrupted"
+
+export type TaskRuntime = {
+  owner: string
+  pid: number
+  started: number
+  heartbeat: number
+}
+
+export type TaskEventType =
+  | "created"
+  | "running"
+  | "resumed"
+  | "completed"
+  | "error"
+  | "cancelled"
+  | "interrupted"
+  | "winner"
+  | "applied"
+  | "apply_error"
+  | "progress"
+
+export type TaskProgressEvent =
+  | {
+      kind: "tool_started"
+      tool: string
+      title?: string
+    }
+  | {
+      kind: "tool_completed"
+      tool: string
+      title?: string
+    }
+  | {
+      kind: "tool_error"
+      tool: string
+      error: string
+    }
+  | {
+      kind: "reasoning"
+      text: string
+    }
+  | {
+      kind: "text"
+      text: string
+    }
+  | {
+      kind: "context_published"
+      id: number
+      event: string
+    }
+  | {
+      kind: "branch_started"
+      name: string
+      sessionId: string
+    }
+  | {
+      kind: "branch_completed"
+      name: string
+      sessionId: string
+    }
+  | {
+      kind: "branch_error"
+      name: string
+      sessionId: string
+      error?: string
+    }
+  | {
+      kind: "branch_cancelled"
+      name: string
+      sessionId: string
+    }
+  | {
+      kind: "branch_tool_started"
+      name: string
+      sessionId: string
+      tool: string
+      title?: string
+    }
+  | {
+      kind: "branch_tool_completed"
+      name: string
+      sessionId: string
+      tool: string
+      title?: string
+    }
+  | {
+      kind: "branch_tool_error"
+      name: string
+      sessionId: string
+      tool: string
+      error: string
+    }
+  | {
+      kind: "branch_reasoning"
+      name: string
+      sessionId: string
+      text: string
+    }
+  | {
+      kind: "branch_text"
+      name: string
+      sessionId: string
+      text: string
+    }
+  | {
+      kind: "branch_context_published"
+      name: string
+      sessionId: string
+      id: number
+      event: string
+    }
+
+export type TaskEvent = {
+  id: number
+  time: number
+  type: TaskEventType
+  title?: string
+  data?: {
+    [key: string]: unknown
+  }
+  progress?: TaskProgressEvent
+}
+
+export type TaskRun = {
+  id: string
+  sessionID: string
+  parentSessionID: string
+  rootSessionID: string
+  projectID: string
+  directory: string
+  description: string
+  prompt: string
+  agent: string
+  background: boolean
+  model: {
+    providerID: string
+    modelID: string
+  }
+  status: TaskRunStatus
+  output?: string
+  error?: string
+  runtime?: TaskRuntime
+  time: {
+    created: number
+    updated: number
+    completed?: number
+  }
+  events: Array<TaskEvent>
+}
+
+export type EventTaskUpdated = {
+  type: "task.updated"
+  properties: {
+    info: TaskRun
+  }
+}
+
+export type EventTaskEvent = {
+  type: "task.event"
+  properties: {
+    taskID: string
+    event: TaskEvent
+  }
+}
+
+export type TaskBranchRun = {
+  id: string
+  sessionId: string
+  rootSessionId: string
+  projectID: string
+  directory: string
+  messageId: string
+  description: string
+  prompt: string
+  subagent: string
+  background: boolean
+  created: number
+  updated: number
+  status: "running" | "completed" | "error" | "cancelled" | "interrupted"
+  error?: string
+  base: {
+    dir: string
+    root: string
+    snapshot?: string
+  }
+  model: {
+    providerID: string
+    modelID: string
+  }
+  branches: Array<{
+    name: string
+    prompt: string
+    sessionId: string
+    status: "pending" | "running" | "completed" | "error" | "cancelled" | "interrupted"
+    output?: string
+    error?: string
+    snapshot?: string
+    diff?: Array<FileDiff>
+    eval?: {
+      score: number
+      confidence: number
+      reason: string
+      tests: {
+        passed: number
+        failed: number
+      }
+      tools: {
+        done: number
+        err: number
+        edit: number
+      }
+      diff: {
+        files: number
+        additions: number
+        deletions: number
+      }
+      notes: Array<string>
+    }
+    dir?: string
+    branch?: string
+    cleanup?: {
+      done: boolean
+      error?: string
+    }
+  }>
+  winner: {
+    name: string
+    sessionId: string
+    score: number
+    confidence: number
+    reason: string
+  } | null
+  applied?: {
+    status: "running" | "completed" | "error"
+    name: string
+    sessionId: string
+    files: number
+    time: number
+    error?: string
+  } | null
+  runtime?: TaskRuntime
+  events: Array<TaskEvent>
+}
+
+export type EventTaskBranchUpdated = {
+  type: "task.branch.updated"
+  properties: {
+    info: TaskBranchRun
+  }
+}
+
+export type EventTaskBranchEvent = {
+  type: "task.branch.event"
+  properties: {
+    branchID: string
+    event: TaskEvent
+  }
+}
+
 export type Todo = {
   /**
    * Brief description of the task
@@ -961,6 +1224,30 @@ export type EventSessionContextTrimmed = {
   }
 }
 
+export type EventSessionCoordination = {
+  type: "session.coordination"
+  properties: {
+    action: "created" | "updated" | "resolved"
+    info: {
+      id: number
+      root_session_id: string
+      from_session_id: string
+      to_session_id?: string
+      to_agent?: string
+      request_id?: string
+      kind: "request" | "update" | "answer" | "claim" | "release" | "conflict" | "resolution"
+      status: "open" | "claimed" | "answered" | "resolved" | "cancelled"
+      title?: string
+      body: string
+      metadata?: {
+        [key: string]: unknown
+      }
+      time_created: number
+      time_updated: number
+    }
+  }
+}
+
 export type EventVcsBranchUpdated = {
   type: "vcs.branch.updated"
   properties: {
@@ -1047,6 +1334,10 @@ export type Event =
   | EventFileWatcherUpdated
   | EventWorktreeReady
   | EventWorktreeFailed
+  | EventTaskUpdated
+  | EventTaskEvent
+  | EventTaskBranchUpdated
+  | EventTaskBranchEvent
   | EventTodoUpdated
   | EventTuiPromptAppend
   | EventTuiCommandExecute
@@ -1062,6 +1353,7 @@ export type Event =
   | EventSessionError
   | EventSessionContext
   | EventSessionContextTrimmed
+  | EventSessionCoordination
   | EventVcsBranchUpdated
   | EventWorkspaceReady
   | EventWorkspaceFailed
@@ -1097,7 +1389,7 @@ export type ServerConfig = {
    */
   mdns?: boolean
   /**
-   * Custom domain name for mDNS service (default: opencode.local)
+   * Custom domain name for mDNS service (default: selene.local)
    */
   mdnsDomain?: string
   /**
@@ -1528,6 +1820,10 @@ export type Config = {
   }
   compaction?: {
     /**
+     * Compaction strategy. 'hybrid' uses local memory/checkpoints with provider-aware hints.
+     */
+    strategy?: "hybrid" | "openai" | "anthropic" | "local"
+    /**
      * Enable automatic compaction when context is full (default: true)
      */
     auto?: boolean
@@ -1535,6 +1831,18 @@ export type Config = {
      * Enable pruning of old tool outputs (default: true)
      */
     prune?: boolean
+    /**
+     * Continuously extract durable memory from completed turns and tool outputs (default: true)
+     */
+    extract_continuously?: boolean
+    /**
+     * Approximate token budget reserved for recent verbatim turns before memory retrieval.
+     */
+    hot_window_tokens?: number
+    /**
+     * Maximum number of durable memory entries to retrieve for a turn.
+     */
+    retrieve_limit?: number
     /**
      * Token buffer for compaction. Leaves enough window to avoid overflow during compaction.
      */
@@ -3202,6 +3510,230 @@ export type SessionContextResponses = {
 
 export type SessionContextResponse = SessionContextResponses[keyof SessionContextResponses]
 
+export type SessionCoordinationData = {
+  body?: never
+  path: {
+    /**
+     * Session ID
+     */
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+    /**
+     * Return entries strictly after this cursor id
+     */
+    after?: number
+    /**
+     * Maximum number of entries to return
+     */
+    limit?: number
+    /**
+     * Optional source session filter
+     */
+    source_session_id?: string
+    /**
+     * Optional target session filter
+     */
+    target_session_id?: string
+    /**
+     * Optional target agent filter
+     */
+    target_agent?: string
+    /**
+     * Optional request thread filter
+     */
+    request_id?: string
+    /**
+     * Optional coordination kind filter
+     */
+    kind?: "request" | "update" | "answer" | "claim" | "release" | "conflict" | "resolution"
+    /**
+     * Optional coordination status filter
+     */
+    status?: "open" | "claimed" | "answered" | "resolved" | "cancelled"
+    /**
+     * Include entries authored by the target session
+     */
+    include_self?: boolean
+  }
+  url: "/session/{sessionID}/coordination"
+}
+
+export type SessionCoordinationErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionCoordinationError = SessionCoordinationErrors[keyof SessionCoordinationErrors]
+
+export type SessionCoordinationResponses = {
+  /**
+   * Coordination entries
+   */
+  200: Array<{
+    id: number
+    root_session_id: string
+    from_session_id: string
+    to_session_id?: string
+    to_agent?: string
+    request_id?: string
+    kind: "request" | "update" | "answer" | "claim" | "release" | "conflict" | "resolution"
+    status: "open" | "claimed" | "answered" | "resolved" | "cancelled"
+    title?: string
+    body: string
+    metadata?: {
+      [key: string]: unknown
+    }
+    time_created: number
+    time_updated: number
+  }>
+}
+
+export type SessionCoordinationResponse = SessionCoordinationResponses[keyof SessionCoordinationResponses]
+
+export type SessionCoordinationWriteData = {
+  body?: {
+    target_session_id?: string
+    target_agent?: string
+    kind: "request" | "update" | "answer" | "claim" | "release" | "conflict" | "resolution"
+    status?: "open" | "claimed" | "answered" | "resolved" | "cancelled"
+    title?: string
+    body: string
+    request_id?: string
+    metadata?: {
+      [key: string]: unknown
+    }
+  }
+  path: {
+    /**
+     * Session ID
+     */
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/coordination"
+}
+
+export type SessionCoordinationWriteErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionCoordinationWriteError = SessionCoordinationWriteErrors[keyof SessionCoordinationWriteErrors]
+
+export type SessionCoordinationWriteResponses = {
+  /**
+   * Coordination entry
+   */
+  200: {
+    id: number
+    root_session_id: string
+    from_session_id: string
+    to_session_id?: string
+    to_agent?: string
+    request_id?: string
+    kind: "request" | "update" | "answer" | "claim" | "release" | "conflict" | "resolution"
+    status: "open" | "claimed" | "answered" | "resolved" | "cancelled"
+    title?: string
+    body: string
+    metadata?: {
+      [key: string]: unknown
+    }
+    time_created: number
+    time_updated: number
+  }
+}
+
+export type SessionCoordinationWriteResponse =
+  SessionCoordinationWriteResponses[keyof SessionCoordinationWriteResponses]
+
+export type SessionCoordinationActionableData = {
+  body?: never
+  path: {
+    /**
+     * Session ID
+     */
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+    /**
+     * Current agent name for to_agent routing
+     */
+    agent?: string
+    /**
+     * Maximum number of actionable entries to return
+     */
+    limit?: number
+  }
+  url: "/session/{sessionID}/coordination/actionable"
+}
+
+export type SessionCoordinationActionableErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionCoordinationActionableError =
+  SessionCoordinationActionableErrors[keyof SessionCoordinationActionableErrors]
+
+export type SessionCoordinationActionableResponses = {
+  /**
+   * Actionable coordination feed
+   */
+  200: {
+    session_id: string
+    root_session_id: string
+    cursor: number
+    latest: number
+    unread: number
+    entries: Array<{
+      id: number
+      root_session_id: string
+      from_session_id: string
+      to_session_id?: string
+      to_agent?: string
+      request_id?: string
+      kind: "request" | "update" | "answer" | "claim" | "release" | "conflict" | "resolution"
+      status: "open" | "claimed" | "answered" | "resolved" | "cancelled"
+      title?: string
+      body: string
+      metadata?: {
+        [key: string]: unknown
+      }
+      time_created: number
+      time_updated: number
+    }>
+  }
+}
+
+export type SessionCoordinationActionableResponse =
+  SessionCoordinationActionableResponses[keyof SessionCoordinationActionableResponses]
+
 export type SessionTodoData = {
   body?: never
   path: {
@@ -3238,6 +3770,71 @@ export type SessionTodoResponses = {
 }
 
 export type SessionTodoResponse = SessionTodoResponses[keyof SessionTodoResponses]
+
+export type SessionCoordinationUpdateData = {
+  body?: {
+    status?: "open" | "claimed" | "answered" | "resolved" | "cancelled"
+    title?: string
+    body?: string
+    metadata?: {
+      [key: string]: unknown
+    }
+  }
+  path: {
+    /**
+     * Session ID
+     */
+    sessionID: string
+    /**
+     * Coordination entry id
+     */
+    coordinationID: number
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/coordination/{coordinationID}"
+}
+
+export type SessionCoordinationUpdateErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionCoordinationUpdateError = SessionCoordinationUpdateErrors[keyof SessionCoordinationUpdateErrors]
+
+export type SessionCoordinationUpdateResponses = {
+  /**
+   * Updated coordination entry
+   */
+  200: {
+    id: number
+    root_session_id: string
+    from_session_id: string
+    to_session_id?: string
+    to_agent?: string
+    request_id?: string
+    kind: "request" | "update" | "answer" | "claim" | "release" | "conflict" | "resolution"
+    status: "open" | "claimed" | "answered" | "resolved" | "cancelled"
+    title?: string
+    body: string
+    metadata?: {
+      [key: string]: unknown
+    }
+    time_created: number
+    time_updated: number
+  }
+}
+
+export type SessionCoordinationUpdateResponse =
+  SessionCoordinationUpdateResponses[keyof SessionCoordinationUpdateResponses]
 
 export type SessionContextReconcileData = {
   body?: {
@@ -3654,6 +4251,7 @@ export type SessionPromptData = {
     tools?: {
       [key: string]: boolean
     }
+    permission?: PermissionRuleset
     format?: OutputFormat
     system?: string
     variant?: string
@@ -3887,6 +4485,7 @@ export type SessionPromptAsyncData = {
     tools?: {
       [key: string]: boolean
     }
+    permission?: PermissionRuleset
     format?: OutputFormat
     system?: string
     variant?: string
@@ -4133,6 +4732,341 @@ export type PermissionRespondResponses = {
 }
 
 export type PermissionRespondResponse = PermissionRespondResponses[keyof PermissionRespondResponses]
+
+export type TaskBranchListData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+    session_id?: string
+    status?: "running" | "completed" | "error" | "cancelled" | "interrupted"
+    limit?: number
+  }
+  url: "/task/branch"
+}
+
+export type TaskBranchListResponses = {
+  /**
+   * Task branch runs
+   */
+  200: Array<TaskBranchRun>
+}
+
+export type TaskBranchListResponse = TaskBranchListResponses[keyof TaskBranchListResponses]
+
+export type TaskBranchGetData = {
+  body?: never
+  path: {
+    branchID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/task/branch/{branchID}"
+}
+
+export type TaskBranchGetErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type TaskBranchGetError = TaskBranchGetErrors[keyof TaskBranchGetErrors]
+
+export type TaskBranchGetResponses = {
+  /**
+   * Task branch run
+   */
+  200: TaskBranchRun
+}
+
+export type TaskBranchGetResponse = TaskBranchGetResponses[keyof TaskBranchGetResponses]
+
+export type TaskBranchEventsData = {
+  body?: never
+  path: {
+    branchID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+    cursor?: number
+    limit?: number
+    wait_ms?: number
+  }
+  url: "/task/branch/{branchID}/events"
+}
+
+export type TaskBranchEventsErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type TaskBranchEventsError = TaskBranchEventsErrors[keyof TaskBranchEventsErrors]
+
+export type TaskBranchEventsResponses = {
+  /**
+   * Task branch events
+   */
+  200: Array<TaskEvent>
+}
+
+export type TaskBranchEventsResponse = TaskBranchEventsResponses[keyof TaskBranchEventsResponses]
+
+export type TaskBranchCancelData = {
+  body?: never
+  path: {
+    branchID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/task/branch/{branchID}/cancel"
+}
+
+export type TaskBranchCancelErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type TaskBranchCancelError = TaskBranchCancelErrors[keyof TaskBranchCancelErrors]
+
+export type TaskBranchCancelResponses = {
+  /**
+   * Cancelled task branch run
+   */
+  200: TaskBranchRun
+}
+
+export type TaskBranchCancelResponse = TaskBranchCancelResponses[keyof TaskBranchCancelResponses]
+
+export type TaskBranchApplyData = {
+  body?: {
+    branch?: string
+  }
+  path: {
+    branchID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/task/branch/{branchID}/apply"
+}
+
+export type TaskBranchApplyErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type TaskBranchApplyError = TaskBranchApplyErrors[keyof TaskBranchApplyErrors]
+
+export type TaskBranchApplyResponses = {
+  /**
+   * Applied task branch winner
+   */
+  200: TaskBranchRun
+}
+
+export type TaskBranchApplyResponse = TaskBranchApplyResponses[keyof TaskBranchApplyResponses]
+
+export type TaskListData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+    parent_session_id?: string
+    root_session_id?: string
+    status?: TaskRunStatus
+    limit?: number
+  }
+  url: "/task"
+}
+
+export type TaskListResponses = {
+  /**
+   * Task runs
+   */
+  200: Array<TaskRun>
+}
+
+export type TaskListResponse = TaskListResponses[keyof TaskListResponses]
+
+export type TaskGetData = {
+  body?: never
+  path: {
+    taskID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/task/{taskID}"
+}
+
+export type TaskGetErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type TaskGetError = TaskGetErrors[keyof TaskGetErrors]
+
+export type TaskGetResponses = {
+  /**
+   * Task run
+   */
+  200: TaskRun
+}
+
+export type TaskGetResponse = TaskGetResponses[keyof TaskGetResponses]
+
+export type TaskEventsData = {
+  body?: never
+  path: {
+    taskID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+    cursor?: number
+    limit?: number
+    wait_ms?: number
+  }
+  url: "/task/{taskID}/events"
+}
+
+export type TaskEventsErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type TaskEventsError = TaskEventsErrors[keyof TaskEventsErrors]
+
+export type TaskEventsResponses = {
+  /**
+   * Task events
+   */
+  200: Array<TaskEvent>
+}
+
+export type TaskEventsResponse = TaskEventsResponses[keyof TaskEventsResponses]
+
+export type TaskCancelData = {
+  body?: never
+  path: {
+    taskID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/task/{taskID}/cancel"
+}
+
+export type TaskCancelErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type TaskCancelError = TaskCancelErrors[keyof TaskCancelErrors]
+
+export type TaskCancelResponses = {
+  /**
+   * Cancelled task run
+   */
+  200: TaskRun
+}
+
+export type TaskCancelResponse = TaskCancelResponses[keyof TaskCancelResponses]
+
+export type TaskResumeData = {
+  body?: {
+    parent_session_id: string
+    prompt?: string
+    parts?: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput>
+    background?: boolean
+    model?: {
+      providerID: string
+      modelID: string
+    }
+    variant?: string
+  }
+  path: {
+    taskID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/task/{taskID}/resume"
+}
+
+export type TaskResumeErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type TaskResumeError = TaskResumeErrors[keyof TaskResumeErrors]
+
+export type TaskResumeResponses = {
+  /**
+   * Resumed task run
+   */
+  200: TaskRun
+}
+
+export type TaskResumeResponse = TaskResumeResponses[keyof TaskResumeResponses]
 
 export type PermissionReplyData = {
   body?: {

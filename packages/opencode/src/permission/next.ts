@@ -267,6 +267,7 @@ export namespace PermissionNext {
     "task_branch_status",
     "task_branch_apply",
     "task_context_reconcile",
+    "task_coordinate",
     "task_status",
     "task_cancel",
     "task_watch",

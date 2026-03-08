@@ -5,6 +5,7 @@ import { logo as glyphs } from "./logo"
 
 export namespace UI {
   export const CancelledError = NamedError.create("UICancelledError", z.void())
+  const cream = "\x1b[38;2;245;242;235m"
 
   export const Style = {
     TEXT_HIGHLIGHT: "\x1b[96m",
@@ -44,14 +45,14 @@ export namespace UI {
     const result: string[] = []
     const reset = "\x1b[0m"
     const left = {
-      fg: Bun.color("gray", "ansi") ?? "",
-      shadow: "\x1b[38;5;235m",
-      bg: "\x1b[48;5;235m",
+      fg: cream,
+      shadow: cream,
+      bg: "",
     }
     const right = {
-      fg: reset,
-      shadow: "\x1b[38;5;238m",
-      bg: "\x1b[48;5;238m",
+      fg: cream,
+      shadow: cream,
+      bg: "",
     }
     const gap = " "
     const draw = (line: string, fg: string, shadow: string, bg: string) => {

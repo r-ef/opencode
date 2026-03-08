@@ -108,6 +108,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
     const inflight = new Map<string, Promise<void>>()
     const inflightDiff = new Map<string, Promise<void>>()
     const inflightTodo = new Map<string, Promise<void>>()
+    const inflightList = new Map<string, Promise<void>>()
     const [meta, setMeta] = createStore({
       limit: {} as Record<string, number>,
       complete: {} as Record<string, boolean>,
@@ -149,9 +150,9 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       await fetchMessages(input)
         .then((next) => {
           batch(() => {
-            input.setStore("message", input.sessionID, reconcile(next.session, { key: "id" }))
+            input.setStore("message", input.sessionID, reconcile(next.session, { key: "id", merge: true }))
             for (const p of next.part) {
-              input.setStore("part", p.id, p.part)
+              input.setStore("part", p.id, reconcile(p.part, { key: "id", merge: true }))
             }
             setMeta("limit", key, input.limit)
             setMeta("complete", key, next.complete)
@@ -220,37 +221,39 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
           const client = sdk.client
           const [store, setStore] = globalSync.child(directory)
           const key = keyFor(directory, sessionID)
-          const hasSession = Binary.search(store.session, sessionID, (s) => s.id).found
 
-          const limit = meta.limit[key] ?? messagePageSize
+          return runInflight(inflight, key, async () => {
+            const hasSession = Binary.search(store.session, sessionID, (s) => s.id).found
+            const limit = meta.limit[key] ?? messagePageSize
 
-          const sessionReq = hasSession
-            ? Promise.resolve()
-            : retry(() => client.session.get({ sessionID })).then((session) => {
-                const data = session.data
-                if (!data) return
-                setStore(
-                  "session",
-                  produce((draft) => {
-                    const match = Binary.search(draft, sessionID, (s) => s.id)
-                    if (match.found) {
-                      draft[match.index] = data
-                      return
-                    }
-                    draft.splice(match.index, 0, data)
-                  }),
-                )
-              })
+            const sessionReq = hasSession
+              ? Promise.resolve()
+              : retry(() => client.session.get({ sessionID })).then((session) => {
+                  const data = session.data
+                  if (!data) return
+                  setStore(
+                    "session",
+                    produce((draft) => {
+                      const match = Binary.search(draft, sessionID, (s) => s.id)
+                      if (match.found) {
+                        draft[match.index] = data
+                        return
+                      }
+                      draft.splice(match.index, 0, data)
+                    }),
+                  )
+                })
 
-          const messagesReq = loadMessages({
-            directory,
-            client,
-            setStore,
-            sessionID,
-            limit,
+            const messagesReq = loadMessages({
+              directory,
+              client,
+              setStore,
+              sessionID,
+              limit,
+            })
+
+            await Promise.all([sessionReq, messagesReq])
           })
-
-          return runInflight(inflight, key, () => Promise.all([sessionReq, messagesReq]).then(() => {}))
         },
         async diff(sessionID: string) {
           const directory = sdk.directory
@@ -327,12 +330,15 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
           const directory = sdk.directory
           const client = sdk.client
           const [store, setStore] = globalSync.child(directory)
-          setStore("limit", (x) => x + count)
-          await client.session.list().then((x) => {
-            const sessions = (x.data ?? [])
+          const key = `${directory}\nlist`
+          return runInflight(inflightList, key, async () => {
+            const limit = store.limit + count
+            setStore("limit", limit)
+            const result = await client.session.list()
+            const sessions = (result.data ?? [])
               .filter((s) => !!s?.id)
               .sort((a, b) => cmp(a.id, b.id))
-              .slice(0, store.limit)
+              .slice(0, limit)
             setStore("session", reconcile(sessions, { key: "id" }))
           })
         },

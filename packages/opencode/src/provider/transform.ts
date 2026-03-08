@@ -6,6 +6,7 @@ import type { Provider } from "./provider"
 import type { ModelsDev } from "./models"
 import { iife } from "@/util/iife"
 import { Flag } from "@/flag/flag"
+import type { SessionMemory } from "@/session/memory"
 
 type Modality = NonNullable<ModelsDev.Model["modalities"]>["input"][number]
 
@@ -15,6 +16,11 @@ function mimeToModality(mime: string): Modality | undefined {
   if (mime.startsWith("video/")) return "video"
   if (mime === "application/pdf") return "pdf"
   return undefined
+}
+
+function resume(model: Provider.Model) {
+  if (model.providerID !== "openai" && model.api.npm !== "@ai-sdk/openai") return false
+  return !`${model.id} ${model.api.id}`.toLowerCase().includes("codex")
 }
 
 export namespace ProviderTransform {
@@ -682,6 +688,7 @@ export namespace ProviderTransform {
     model: Provider.Model
     sessionID: string
     providerOptions?: Record<string, any>
+    checkpoint?: SessionMemory.Checkpoint
   }): Record<string, any> {
     const result: Record<string, any> = {}
 
@@ -719,6 +726,10 @@ export namespace ProviderTransform {
 
     if (input.model.providerID === "openai" || input.providerOptions?.setCacheKey) {
       result["promptCacheKey"] = input.sessionID
+    }
+
+    if (resume(input.model) && input.checkpoint?.provider?.openai?.response_id) {
+      result["previousResponseId"] = input.checkpoint.provider.openai.response_id
     }
 
     if (input.model.api.npm === "@ai-sdk/google" || input.model.api.npm === "@ai-sdk/google-vertex") {

@@ -3,6 +3,7 @@ import {
   createContext,
   createEffect,
   createMemo,
+  createResource,
   createSignal,
   For,
   Match,
@@ -148,14 +149,33 @@ export function Session() {
       .toSorted((a, b) => a.time.created - b.time.created || a.id.localeCompare(b.id))
   })
   const messages = createMemo(() => sync.data.message[route.sessionID] ?? [])
-  const permissions = createMemo(() => {
-    if (session()?.kind === "subagent") return []
-    return subagents().flatMap((x) => sync.data.permission[x.id] ?? [])
+  const tree = createMemo(() => {
+    const root = session()?.id
+    if (!root) return [] as string[]
+
+    const map = sync.data.session.reduce((acc, item) => {
+      if (!item.parentID) return acc
+      const list = acc.get(item.parentID)
+      if (list) list.push(item.id)
+      if (!list) acc.set(item.parentID, [item.id])
+      return acc
+    }, new Map<string, string[]>())
+
+    const seen = new Set([root])
+    const ids = [root]
+    for (const id of ids) {
+      const list = map.get(id)
+      if (!list) continue
+      for (const child of list) {
+        if (seen.has(child)) continue
+        seen.add(child)
+        ids.push(child)
+      }
+    }
+    return ids
   })
-  const questions = createMemo(() => {
-    if (session()?.kind === "subagent") return []
-    return subagents().flatMap((x) => sync.data.question[x.id] ?? [])
-  })
+  const permissions = createMemo(() => tree().flatMap((id) => sync.data.permission[id] ?? []))
+  const questions = createMemo(() => tree().flatMap((id) => sync.data.question[id] ?? []))
 
   const pending = createMemo(() => {
     return messages().findLast((x) => x.role === "assistant" && !x.time.completed)?.id
@@ -221,14 +241,17 @@ export function Session() {
     const id = route.sessionID
     if (!id) return
 
-    const load = () => {
-      sync.session.sync(id, true).catch((error) => {
+    const load = (force = false) => {
+      sync.session.sync(id, force).catch((error) => {
         console.error(error)
       })
     }
 
-    void load()
-    const timer = setInterval(load, 1000)
+    void load(true)
+    if (permissions().length > 0 || questions().length > 0) return
+    if (!pending() && sync.data.session_status[id]?.type === "idle") return
+
+    const timer = setInterval(() => load(true), 2000)
     onCleanup(() => clearInterval(timer))
   })
 
@@ -281,7 +304,7 @@ export function Session() {
         `${logo[3] ?? ""}`,
         ``,
         `  ${weak("Session")}${UI.Style.TEXT_NORMAL_BOLD}${title}${UI.Style.TEXT_NORMAL}`,
-        `  ${weak("Continue")}${UI.Style.TEXT_NORMAL_BOLD}opencode -s ${session()?.id}${UI.Style.TEXT_NORMAL}`,
+        `  ${weak("Continue")}${UI.Style.TEXT_NORMAL_BOLD}selene -s ${session()?.id}${UI.Style.TEXT_NORMAL}`,
         ``,
       ].join("\n"),
     )
@@ -2079,11 +2102,28 @@ function WebSearch(props: ToolProps<any>) {
 function Task(props: ToolProps<typeof TaskTool>) {
   const toast = useToast()
   const sync = useSync()
+  const sdk = useSDK()
   const { navigate } = useRoute()
+  const [run, ctl] = createResource(
+    () => props.metadata.sessionId,
+    async (id: string | undefined) => {
+      if (!id) return
+      return sdk.client.task
+        .get({ taskID: id })
+        .then((res) => res.data)
+        .catch(() => undefined)
+    },
+  )
 
   createEffect(() => {
-    if (props.metadata.sessionId && !sync.data.message[props.metadata.sessionId]?.length)
-      sync.session.sync(props.metadata.sessionId)
+    const id = props.metadata.sessionId
+    if (!id) return
+    if (!sync.data.message[id]?.length) sync.session.sync(id)
+    void ctl.refetch()
+    const timer = setInterval(() => {
+      void ctl.refetch()
+    }, 2_000)
+    onCleanup(() => clearInterval(timer))
   })
 
   const messages = createMemo(() => sync.data.message[props.metadata.sessionId ?? ""] ?? [])
@@ -2091,10 +2131,7 @@ function Task(props: ToolProps<typeof TaskTool>) {
     if (!props.metadata.sessionId) return { type: "idle" as const }
     return sync.data.session_status[props.metadata.sessionId] ?? { type: "idle" as const }
   })
-  const busy = createMemo(() => {
-    const type = status().type
-    return type === "busy" || type === "retry"
-  })
+  const busy = createMemo(() => run()?.status === "running" || status().type === "busy" || status().type === "retry")
   const spin = createMemo(() => props.part.state.status === "running" || (props.metadata.background === true && busy()))
 
   const tools = createMemo(() => {
@@ -2111,16 +2148,16 @@ function Task(props: ToolProps<typeof TaskTool>) {
     const msg = messages().findLast((x) => x.role === "assistant")
     if (!msg) return
     const parts = sync.data.part[msg.id] ?? []
-    const run = parts
+    const item = parts
       .filter(
         (part): part is ToolPart =>
           part.type === "tool" && (part.state.status === "running" || part.state.status === "pending"),
       )
       .at(-1)
-    if (run) {
-      const title = run.state.status === "running" ? run.state.title : undefined
-      if (title) return `↳ ${Locale.titlecase(run.tool)} ${title}`
-      return `↳ ${Locale.titlecase(run.tool)} running`
+    if (item) {
+      const title = item.state.status === "running" ? item.state.title : undefined
+      if (title) return `↳ ${Locale.titlecase(item.tool)} ${title}`
+      return `↳ ${Locale.titlecase(item.tool)} running`
     }
 
     const reason = parts
@@ -2146,27 +2183,26 @@ function Task(props: ToolProps<typeof TaskTool>) {
   const [seen, setSeen] = createSignal(false)
   createEffect(() => {
     const id = props.metadata.sessionId
-    if (!id) return
+    const task = run()
+    if (!id || !task) return
     if (props.metadata.background !== true) return
-
-    const type = status().type
-    if (type === "busy" || type === "retry") {
+    if (task.status === "running") {
       setSeen(true)
       return
     }
-
-    if (type !== "idle") return
     if (!seen()) return
     if (done.has(id)) return
 
     done.add(id)
-    const message = props.input.description
-      ? `Background task finished: ${props.input.description}`
-      : "Background task finished"
     toast.show({
-      variant: "success",
-      title: "Subagent Complete",
-      message,
+      variant: task.status === "completed" ? "success" : "warning",
+      title: task.status === "completed" ? "Subagent Complete" : "Subagent Stopped",
+      message:
+        task.status === "completed"
+          ? props.input.description
+            ? `Background task finished: ${props.input.description}`
+            : "Background task finished"
+          : (task.error ?? `Background task ${task.status}`),
       duration: 4000,
       action: {
         label: "Jump to subagent",
@@ -2177,6 +2213,7 @@ function Task(props: ToolProps<typeof TaskTool>) {
 
   const content = createMemo(() => {
     if (!props.input.description) return ""
+    const task = run()
     let content = [`Task ${props.input.description}`]
 
     if (spin()) {
@@ -2186,8 +2223,11 @@ function Task(props: ToolProps<typeof TaskTool>) {
       else content.push("↳ starting...")
     }
 
-    if (props.part.state.status === "completed" && !spin()) {
+    if (!spin() && task?.status === "completed") {
       content.push(`└ ${tools().length} toolcalls · ${Locale.duration(duration())}`)
+    }
+    if (!spin() && task?.status && task.status !== "completed") {
+      content.push(`└ ${task.status}${task.error ? ` · ${Locale.truncate(task.error, 80)}` : ""}`)
     }
 
     return content.join("\n")
@@ -2212,6 +2252,8 @@ function Task(props: ToolProps<typeof TaskTool>) {
 function TaskBranch(props: ToolProps<typeof TaskBranchTool>) {
   const toast = useToast()
   const sync = useSync()
+  const sdk = useSDK()
+  const { navigate } = useRoute()
   const meta = createMemo(
     () =>
       props.metadata as {
@@ -2221,20 +2263,49 @@ function TaskBranch(props: ToolProps<typeof TaskBranchTool>) {
         branches?: { name?: string; sessionId?: string }[]
       },
   )
+  const [run, ctl] = createResource(
+    () => meta().branchId,
+    async (id: string | undefined) => {
+      if (!id) return
+      return sdk.client.taskBranch
+        .get({ branchID: id })
+        .then((res) => res.data)
+        .catch(() => undefined)
+    },
+  )
 
-  const rows = createMemo(() =>
-    (meta().branches ?? []).flatMap((item) => {
+  const apply = createMemo(() => {
+    if (run()?.applied?.status === "running") return "running" as const
+    if (run()?.applied?.status === "completed") return "done" as const
+    if (run()?.applied?.status === "error") return "error" as const
+    return "idle" as const
+  })
+
+  createEffect(() => {
+    const id = meta().branchId
+    if (!id) return
+    void ctl.refetch()
+    const timer = setInterval(() => {
+      void ctl.refetch()
+    }, 2_000)
+    onCleanup(() => clearInterval(timer))
+  })
+
+  const rows = createMemo(() => {
+    const list = run()?.branches ?? (meta().branches ?? []).map((item) => ({ ...item, status: "running" as const }))
+    return list.flatMap((item) => {
       if (!item?.sessionId) return []
       return [
         {
           name: item.name ?? item.sessionId,
           sessionId: item.sessionId,
           status: sync.data.session_status[item.sessionId] ?? { type: "idle" as const },
+          state: item.status,
           messages: sync.data.message[item.sessionId] ?? [],
         },
       ]
-    }),
-  )
+    })
+  })
 
   createEffect(() => {
     rows().forEach((item) => {
@@ -2242,7 +2313,11 @@ function TaskBranch(props: ToolProps<typeof TaskBranchTool>) {
     })
   })
 
-  const busy = createMemo(() => rows().some((item) => item.status.type === "busy" || item.status.type === "retry"))
+  const busy = createMemo(
+    () =>
+      run()?.status === "running" ||
+      rows().some((item) => item.state === "running" || item.status.type === "busy" || item.status.type === "retry"),
+  )
   const spin = createMemo(() => props.part.state.status === "running" || (meta().background === true && busy()))
 
   const line = createMemo(() => {
@@ -2265,10 +2340,11 @@ function TaskBranch(props: ToolProps<typeof TaskBranchTool>) {
   const [seen, setSeen] = createSignal(false)
   createEffect(() => {
     const key = meta().branchId ?? rows()[0]?.sessionId
-    const win = meta().winner
-    if (!key) return
+    const win = run()?.winner ?? meta().winner
+    const state = run()?.status
+    if (!key || !state) return
     if (meta().background !== true) return
-    if (busy()) {
+    if (state === "running") {
       setSeen(true)
       return
     }
@@ -2278,9 +2354,21 @@ function TaskBranch(props: ToolProps<typeof TaskBranchTool>) {
     done.add(key)
     const jump = win?.sessionId ?? rows()[0]?.sessionId
     toast.show({
-      variant: "success",
-      title: "Branches Complete",
-      message: win?.name ? `Winner: ${win.name}` : "Background branch run finished",
+      variant: state === "completed" ? "success" : "warning",
+      title:
+        state === "completed"
+          ? "Branches Complete"
+          : state === "cancelled"
+            ? "Branches Cancelled"
+            : state === "interrupted"
+              ? "Branches Interrupted"
+              : "Branches Stopped",
+      message:
+        state === "completed"
+          ? win?.name
+            ? `Winner: ${win.name}`
+            : "Background branch run completed"
+          : (run()?.error ?? `Background branch run ${state}`),
       duration: 4000,
       ...(jump
         ? {
@@ -2295,26 +2383,55 @@ function TaskBranch(props: ToolProps<typeof TaskBranchTool>) {
 
   const content = createMemo(() => {
     const desc = typeof props.input.description === "string" ? props.input.description : "Branch run"
-    const win = meta().winner
+    const win = run()?.winner ?? meta().winner
     const total = rows().length
-    const done = rows().filter((item) => item.status.type === "idle").length
+    const count = rows().filter((item) => item.state !== "running" && item.state !== "pending").length
     const text = [`Branch ${desc}`]
 
     if (spin()) {
       if (line()) text.push(line()!)
-      else text.push(`↳ ${done}/${total} branches complete`)
+      else text.push(`↳ ${count}/${total} branches complete`)
     }
 
-    if (props.part.state.status === "completed" && !spin()) {
-      if (win?.name) text.push(`└ winner ${win.name}`)
-      else text.push(`└ ${done}/${total} branches complete`)
+    if (!spin()) {
+      if (win?.name) {
+        const tail =
+          apply() === "running"
+            ? " · applying"
+            : apply() === "done"
+              ? " · applied"
+              : apply() === "error"
+                ? " · apply blocked"
+                : ""
+        text.push(`└ winner ${win.name}${tail}`)
+      } else if (run()?.status === "cancelled") {
+        text.push("└ cancelled")
+      } else if (run()?.status === "interrupted") {
+        text.push(`└ interrupted${run()?.error ? ` · ${Locale.truncate(run()!.error!, 80)}` : ""}`)
+      } else if (run()?.status === "error") {
+        text.push(`└ error${run()?.error ? ` · ${Locale.truncate(run()!.error!, 80)}` : ""}`)
+      } else if (run()?.status) {
+        text.push(`└ ${run()!.status}`)
+      } else {
+        text.push(`└ ${count}/${total} branches complete`)
+      }
     }
 
     return text.join("\n")
   })
 
   return (
-    <InlineTool icon="│" spinner={spin()} complete={props.input.description} pending="Branching..." part={props.part}>
+    <InlineTool
+      icon="│"
+      spinner={spin()}
+      complete={props.input.description}
+      pending="Branching..."
+      part={props.part}
+      onClick={() => {
+        const id = run()?.winner?.sessionId ?? meta().winner?.sessionId ?? rows()[0]?.sessionId
+        if (id) navigate({ type: "session", sessionID: id })
+      }}
+    >
       {content()}
     </InlineTool>
   )

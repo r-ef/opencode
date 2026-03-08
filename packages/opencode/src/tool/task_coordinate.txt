@@ -1,0 +1,9 @@
+Publish a durable coordination update for sibling or parent sessions in the same root session tree.
+
+Use this for directed subagent collaboration such as:
+- asking a specific sibling for help or validation
+- claiming or releasing a piece of work
+- posting an answer to an earlier request
+- publishing a conflict or final resolution for an existing request thread
+
+Use shared context for broad publishable results. Use task_coordinate when the update is operational and should be directed to a specific sibling session, sibling agent type, or the parent orchestrator.

@@ -218,10 +218,17 @@ export interface Hooks {
    *
    * - `context`: Additional context strings appended to the default prompt
    * - `prompt`: If set, replaces the default compaction prompt entirely
+   * - `memory`: Additional structured memory entries to persist with the checkpoint
+   * - `retrieve`: Retrieval hints that should bias future memory lookup
    */
   "experimental.session.compacting"?: (
     input: { sessionID: string },
-    output: { context: string[]; prompt?: string },
+    output: {
+      context: string[]
+      prompt?: string
+      memory?: Array<{ kind: string; text: string; source?: Record<string, unknown> }>
+      retrieve?: { terms?: string[]; files?: string[] }
+    },
   ) => Promise<void>
   "experimental.text.complete"?: (
     input: { sessionID: string; messageID: string; partID: string },

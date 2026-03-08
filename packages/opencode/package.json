@@ -1,6 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "version": "1.2.18",
+  "description": "Selene is the open source AI coding agent.",
   "name": "opencode",
   "type": "module",
   "license": "MIT",

@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createResource, onCleanup } from "solid-js"
+import { createEffect, createMemo, createResource } from "solid-js"
 import { useNavigate, useParams } from "@solidjs/router"
 import { useCommand, type CommandOption } from "@/context/command"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
@@ -68,10 +68,6 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
     const id = params.id
     if (!id || info()?.kind !== "interactive") return
     void refetchBranches()
-    const timer = setInterval(() => {
-      void refetchBranches()
-    }, 5_000)
-    onCleanup(() => clearInterval(timer))
   })
 
   createEffect(() => {

@@ -4,11 +4,29 @@ import { fileURLToPath } from "url"
 import { Instance } from "../../src/project/instance"
 import { Session } from "../../src/session"
 import { MessageV2 } from "../../src/session/message-v2"
+import { SessionAmbient } from "../../src/session/ambient"
 import { SessionPrompt } from "../../src/session/prompt"
+import { TaskBranch } from "../../src/task/branch"
+import { TaskRun } from "../../src/task/run"
 import { Log } from "../../src/util/log"
 import { tmpdir } from "../fixture/fixture"
 
 Log.init({ print: false })
+
+async function lastText(sessionID: string) {
+  const msg = await Session.messages({ sessionID }).then((rows) => rows.findLast((item) => item.info.role === "user"))
+  if (!msg || msg.info.role !== "user") return ""
+  return msg.parts.filter((item) => item.type === "text").map((item) => item.text).join("\n")
+}
+
+async function waitForText(sessionID: string, pattern: string) {
+  for (let i = 0; i < 40; i++) {
+    const text = await lastText(sessionID)
+    if (text.includes(pattern)) return text
+    await Bun.sleep(10)
+  }
+  throw new Error(`timed out waiting for ${pattern}`)
+}
 
 describe("session.prompt missing file", () => {
   test("injects shared context updates from sibling sessions", async () => {
@@ -114,6 +132,186 @@ describe("session.prompt missing file", () => {
         if (c.info.role !== "user") throw new Error("expected user message")
         const ctext = c.parts.filter((item) => item.type === "text").map((item) => item.text).join("\n")
         expect(ctext).toContain("second update")
+      },
+    })
+  })
+
+  test("followup injects shared context updates for background reminders", async () => {
+    await using tmp = await tmpdir({
+      git: true,
+      config: {
+        agent: {
+          build: {
+            model: "openai/gpt-5.2",
+          },
+        },
+      },
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const root = await Session.create({ title: "root" })
+        const child = await Session.create({ parentID: root.id, title: "child" })
+
+        await SessionPrompt.prompt({
+          sessionID: root.id,
+          agent: "build",
+          noReply: true,
+          parts: [{ type: "text", text: "start background work" }],
+        })
+
+        await Session.contextWrite({
+          session_id: child.id,
+          kind: "task_result",
+          title: "child done",
+          body: "Child task finished successfully.",
+        })
+
+        const msg = await SessionPrompt.followup({
+          sessionID: root.id,
+          text: "<system-reminder>\nBackground work finished.\n</system-reminder>",
+          run: false,
+        })
+        if (msg.info.role !== "user") throw new Error("expected user message")
+
+        const text = msg.parts.filter((item) => item.type === "text").map((item) => item.text).join("\n")
+        expect(text).toContain("Shared session context updates:")
+        expect(text).toContain("Child task finished successfully.")
+        expect(text).toContain("Background work finished.")
+      },
+    })
+  })
+
+  test("ambient tracker follows background task milestones without task_watch polling", async () => {
+    await using tmp = await tmpdir({
+      git: true,
+      config: {
+        agent: {
+          build: {
+            model: "openai/gpt-5.2",
+          },
+        },
+      },
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const root = await Session.create({ title: "root" })
+        const task = await Session.create({ parentID: root.id, title: "task" })
+
+        SessionAmbient.track({
+          kind: "task",
+          id: task.id,
+          parentID: root.id,
+          rootID: root.id,
+          title: "inspect parser",
+        })
+
+        await TaskRun.upsert({
+          session: task,
+          parent: root,
+          description: "inspect parser",
+          prompt: "inspect parser",
+          agent: "build",
+          background: true,
+          model: { providerID: "openai", modelID: "gpt-5.2" },
+        })
+
+        await Session.contextWrite({
+          session_id: task.id,
+          kind: "task_result",
+          title: "partial",
+          body: "Parser findings available.",
+          metadata: {
+            task_id: task.id,
+          },
+        })
+
+        const mid = await waitForText(root.id, "Background task published a useful update")
+        expect(mid).toContain("inspect parser")
+        expect(mid).not.toContain("No new updates yet.")
+
+        await TaskRun.finish(task.id, {
+          status: "completed",
+          output: "done",
+        })
+
+        const final = await waitForText(root.id, "Background task complete")
+        expect(final).toContain("inspect parser")
+        expect(final).not.toContain("task_watch")
+      },
+    })
+  })
+
+  test("ambient tracker surfaces branch winner milestones once", async () => {
+    await using tmp = await tmpdir({
+      git: true,
+      config: {
+        agent: {
+          build: {
+            model: "openai/gpt-5.2",
+          },
+        },
+      },
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const root = await Session.create({ title: "root" })
+        const left = await Session.create({ parentID: root.id, title: "left" })
+        const right = await Session.create({ parentID: root.id, title: "right" })
+
+        const run = await TaskBranch.create({
+          id: "tool_branch_test",
+          sessionId: root.id,
+          rootSessionId: root.id,
+          projectID: root.projectID,
+          directory: root.directory,
+          messageId: "msg_branch_test",
+          description: "branch parser",
+          prompt: "branch parser",
+          subagent: "build",
+          background: true,
+          created: Date.now(),
+          status: "running",
+          base: {
+            dir: root.directory,
+            root: root.directory,
+          },
+          model: {
+            providerID: "openai",
+            modelID: "gpt-5.2",
+          },
+          branches: [
+            { name: "left", prompt: "left", sessionId: left.id, status: "completed" },
+            { name: "right", prompt: "right", sessionId: right.id, status: "completed" },
+          ],
+          winner: null,
+          applied: null,
+        })
+
+        SessionAmbient.track({
+          kind: "branch",
+          id: run.id,
+          parentID: root.id,
+          rootID: root.id,
+          title: run.description,
+        })
+
+        await TaskBranch.markWinner(run.id, {
+          name: "left",
+          sessionId: left.id,
+          score: 92,
+          confidence: 0.9,
+          reason: "best",
+        })
+
+        const text = await waitForText(root.id, "Background branch winner ready")
+        expect(text).toContain("branch parser")
+        expect(text).toContain("task_branch_apply")
       },
     })
   })

@@ -56,10 +56,12 @@ import { animate } from "motion"
 function ShellSubmessage(props: { text: string; animate?: boolean }) {
   let widthRef: HTMLSpanElement | undefined
   let valueRef: HTMLSpanElement | undefined
+  let frame: number | undefined
 
   onMount(() => {
     if (!props.animate) return
-    requestAnimationFrame(() => {
+    frame = requestAnimationFrame(() => {
+      frame = undefined
       if (widthRef) {
         animate(widthRef, { width: "auto" }, { type: "spring", visualDuration: 0.25, bounce: 0 })
       }
@@ -67,6 +69,10 @@ function ShellSubmessage(props: { text: string; animate?: boolean }) {
         animate(valueRef, { opacity: 1, filter: "blur(0px)" }, { duration: 0.32, ease: [0.16, 1, 0.3, 1] })
       }
     })
+  })
+
+  onCleanup(() => {
+    if (frame !== undefined) cancelAnimationFrame(frame)
   })
 
   return (
@@ -464,6 +470,11 @@ export function AssistantParts(props: {
   const emptyParts: PartType[] = []
   const emptyTools: ToolPart[] = []
 
+  const lookup = createMemo(() => ({
+    msg: new Map(props.messages.map((item) => [item.id, item] as const)),
+    part: new Map(props.messages.map((item) => [item.id, list(data.store.part?.[item.id], emptyParts)] as const)),
+  }))
+
   const grouped = createMemo(
     () =>
       groupParts(
@@ -495,7 +506,7 @@ export function AssistantParts(props: {
                   () => {
                     const entry = entryAccessor() as { type: "context"; refs: PartRef[] }
                     return entry.refs
-                      .map((ref) => partByID(list(data.store.part?.[ref.messageID], emptyParts), ref.partID))
+                      .map((ref) => partByID(lookup().part.get(ref.messageID) ?? emptyParts, ref.partID))
                       .filter((part): part is ToolPart => !!part && isContextGroupTool(part))
                   },
                   emptyTools,
@@ -514,28 +525,32 @@ export function AssistantParts(props: {
               {(() => {
                 const message = createMemo(() => {
                   const entry = entryAccessor() as { type: "part"; ref: PartRef }
-                  return props.messages.find((item) => item.id === entry.ref.messageID)
+                  return lookup().msg.get(entry.ref.messageID)
                 })
                 const part = createMemo(() => {
                   const entry = entryAccessor() as { type: "part"; ref: PartRef }
-                  return partByID(list(data.store.part?.[entry.ref.messageID], emptyParts), entry.ref.partID)
+                  return partByID(lookup().part.get(entry.ref.messageID) ?? emptyParts, entry.ref.partID)
+                })
+                const current = createMemo(() => {
+                  const msg = message()
+                  const p = part()
+                  if (!msg || !p) return
+                  return { msg, p }
                 })
 
                 return (
-                  <Show when={message()}>
-                    {(msg) => (
-                      <Show when={part()}>
-                        {(p) => (
-                          <Part
-                            part={p()}
-                            message={msg()}
-                            showAssistantCopyPartID={props.showAssistantCopyPartID}
-                            turnDurationMs={props.turnDurationMs}
-                            defaultOpen={partDefaultOpen(p(), props.shellToolDefaultOpen, props.editToolDefaultOpen)}
-                          />
-                        )}
-                      </Show>
-                    )}
+                  <Show when={current()}>
+                    <Part
+                      part={current()!.p}
+                      message={current()!.msg}
+                      showAssistantCopyPartID={props.showAssistantCopyPartID}
+                      turnDurationMs={props.turnDurationMs}
+                      defaultOpen={partDefaultOpen(
+                        current()!.p,
+                        props.shellToolDefaultOpen,
+                        props.editToolDefaultOpen,
+                      )}
+                    />
                   </Show>
                 )
               })()}
@@ -657,30 +672,27 @@ export function registerPartComponent(type: string, component: PartComponent) {
 }
 
 export function Message(props: MessageProps) {
-  return (
-    <Switch>
-      <Match when={props.message.role === "user" && props.message}>
-        {(userMessage) => (
-          <UserMessageDisplay
-            message={userMessage() as UserMessage}
-            parts={props.parts}
-            interrupted={props.interrupted}
-            queued={props.queued}
-          />
-        )}
-      </Match>
-      <Match when={props.message.role === "assistant" && props.message}>
-        {(assistantMessage) => (
-          <AssistantMessageDisplay
-            message={assistantMessage() as AssistantMessage}
-            parts={props.parts}
-            showAssistantCopyPartID={props.showAssistantCopyPartID}
-            showReasoningSummaries={props.showReasoningSummaries}
-          />
-        )}
-      </Match>
-    </Switch>
-  )
+  if (props.message.role === "user") {
+    return (
+      <UserMessageDisplay
+        message={props.message as UserMessage}
+        parts={props.parts}
+        interrupted={props.interrupted}
+        queued={props.queued}
+      />
+    )
+  }
+  if (props.message.role === "assistant") {
+    return (
+      <AssistantMessageDisplay
+        message={props.message as AssistantMessage}
+        parts={props.parts}
+        showAssistantCopyPartID={props.showAssistantCopyPartID}
+        showReasoningSummaries={props.showReasoningSummaries}
+      />
+    )
+  }
+  return null
 }
 
 export function AssistantMessageDisplay(props: {
@@ -740,13 +752,7 @@ export function AssistantMessageDisplay(props: {
 
                 return (
                   <Show when={part()}>
-                    {(p) => (
-                      <Part
-                        part={p()}
-                        message={props.message}
-                        showAssistantCopyPartID={props.showAssistantCopyPartID}
-                      />
-                    )}
+                    <Part part={part()!} message={props.message} showAssistantCopyPartID={props.showAssistantCopyPartID} />
                   </Show>
                 )
               })()}
@@ -1289,10 +1295,13 @@ PART_MAPPING["text"] = function TextPartDisplay(props) {
   const displayText = () => (part().text ?? "").trim()
   const throttledText = createThrottledValue(displayText)
   const isLastTextPart = createMemo(() => {
-    const last = (data.store.part?.[props.message.id] ?? [])
-      .filter((item): item is TextPart => item?.type === "text" && !!item.text?.trim())
-      .at(-1)
-    return last?.id === part().id
+    const list = data.store.part?.[props.message.id] ?? []
+    for (let i = list.length - 1; i >= 0; i--) {
+      const item = list[i]
+      if (item?.type !== "text" || !item.text?.trim()) continue
+      return item.id === part().id
+    }
+    return false
   })
   const showCopy = createMemo(() => {
     if (props.message.role !== "assistant") return isLastTextPart()
@@ -1713,8 +1722,8 @@ ToolRegistry.register({
         },
     )
 
-    const rows = createMemo(() =>
-      (meta().branches ?? []).flatMap((item) => {
+    const state = createMemo(() => {
+      const rows = (meta().branches ?? []).flatMap((item) => {
         if (!item?.sessionId) return []
         const current = session(data, item.sessionId)
         return [
@@ -1726,10 +1735,22 @@ ToolRegistry.register({
             text: line(data, item.sessionId),
           },
         ]
-      }),
-    )
+      })
+      let done = 0
+      let active = props.status === "pending" || props.status === "running"
+      for (const row of rows) {
+        if (!row.running) done += 1
+        if (meta().background === true && row.running) active = true
+      }
+      const win = meta().winner?.sessionId
+      return {
+        rows,
+        done,
+        running: active,
+        winner: win ? rows.find((row) => row.sessionId === win) : undefined,
+      }
+    })
 
-    const done = createMemo(() => rows().filter((item) => !item.running).length)
     const title = createMemo(() => {
       const value = props.input.description
       if (typeof value === "string" && value.trim()) return value
@@ -1738,17 +1759,13 @@ ToolRegistry.register({
     const subtitle = createMemo(() => {
       const win = meta().winner
       if (win?.name) return `Winner: ${win.name}`
-      const total = rows().length
+      const total = state().rows.length
       if (!total) return undefined
-      return `${done()}/${total} branches complete`
+      return `${state().done}/${total} branches complete`
     })
-    const running = createMemo(
-      () => props.status === "pending" || props.status === "running" || (meta().background === true && rows().some((item) => item.running)),
-    )
     const action = createMemo(() => {
-      const id = meta().winner?.sessionId
-      const item = rows().find((row) => row.sessionId === id)
-      if (!item?.href || running()) return undefined
+      const item = state().winner
+      if (!item?.href || state().running) return undefined
       return (
         <a href={item.href} onClick={(event) => event.stopPropagation()} data-slot="basic-tool-tool-subtitle" class="clickable subagent-link">
           open winner
@@ -1759,8 +1776,8 @@ ToolRegistry.register({
     return (
       <BasicTool
         icon="branch"
-        status={running() ? "running" : props.status}
-        hideDetails={rows().length === 0}
+        status={state().running ? "running" : props.status}
+        hideDetails={state().rows.length === 0}
         trigger={{
           title: title(),
           subtitle: subtitle(),
@@ -1768,7 +1785,7 @@ ToolRegistry.register({
         }}
       >
         <div class="flex flex-col gap-2 py-1">
-          <For each={rows()}>
+          <For each={state().rows}>
             {(item) => (
               <div class="flex items-start justify-between gap-3 min-w-0">
                 <div class="min-w-0 flex flex-col gap-0.5">
@@ -1908,7 +1925,9 @@ ToolRegistry.register({
             <ToolFileAccordion
               path={path()}
               actions={
-                <Show when={!pending() && props.metadata.filediff}>{(diff) => <DiffChanges changes={diff()} />}</Show>
+                <Show when={!pending() && props.metadata.filediff}>
+                  <DiffChanges changes={props.metadata.filediff} />
+                </Show>
               }
             >
               <div data-component="edit-content">

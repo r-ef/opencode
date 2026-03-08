@@ -392,23 +392,27 @@ export default function Page() {
     return sync.session.history.loading(id)
   })
 
-  const userMessages = createMemo(
-    () => messages().filter((m) => m.role === "user") as UserMessage[],
-    emptyUserMessages,
-    { equals: same },
-  )
-  const visibleUserMessages = createMemo(
-    () => {
-      const revert = revertMessageID()
-      if (!revert) return userMessages()
-      return userMessages().filter((m) => m.id < revert)
-    },
-    emptyUserMessages,
-    {
-      equals: same,
-    },
-  )
-  const lastUserMessage = createMemo(() => visibleUserMessages().at(-1))
+  const history = createMemo(() => {
+    const revert = revertMessageID()
+    const user = [] as UserMessage[]
+    const visible = [] as UserMessage[]
+    const map = new Map<string, number>()
+    for (const msg of messages()) {
+      if (msg.role !== "user") continue
+      user.push(msg as UserMessage)
+      if (revert && msg.id >= revert) continue
+      map.set(msg.id, visible.length)
+      visible.push(msg as UserMessage)
+    }
+    return {
+      user,
+      visible,
+      map,
+      last: visible.at(-1),
+    }
+  })
+  const visibleUserMessages = createMemo(() => history().visible, emptyUserMessages, { equals: same })
+  const lastUserMessage = createMemo(() => history().last)
 
   createEffect(
     on(
@@ -432,13 +436,21 @@ export default function Page() {
     newSessionWorktree: "main",
     deferRender: false,
   })
+  let deferFrame: number | undefined
+  let deferTimer: number | undefined
 
   createComputed((prev) => {
     const key = sessionKey()
     if (key !== prev) {
       setStore("deferRender", true)
-      requestAnimationFrame(() => {
-        setTimeout(() => setStore("deferRender", false), 0)
+      if (deferFrame !== undefined) cancelAnimationFrame(deferFrame)
+      if (deferTimer !== undefined) clearTimeout(deferTimer)
+      deferFrame = requestAnimationFrame(() => {
+        deferFrame = undefined
+        deferTimer = window.setTimeout(() => {
+          deferTimer = undefined
+          setStore("deferRender", false)
+        }, 0)
       })
     }
     return key
@@ -455,9 +467,11 @@ export default function Page() {
   })
 
   const activeMessage = createMemo(() => {
-    if (!store.messageId) return lastUserMessage()
-    const found = visibleUserMessages()?.find((m) => m.id === store.messageId)
-    return found ?? lastUserMessage()
+    const id = store.messageId
+    if (!id) return lastUserMessage()
+    const index = history().map.get(id)
+    if (index === undefined) return lastUserMessage()
+    return history().visible[index] ?? lastUserMessage()
   })
   const setActiveMessage = (message: UserMessage | undefined) => {
     setStore("messageId", message?.id)
@@ -468,8 +482,7 @@ export default function Page() {
     if (msgs.length === 0) return
 
     const current = store.messageId
-    const base = current ? msgs.findIndex((m) => m.id === current) : msgs.length
-    const currentIndex = base === -1 ? msgs.length : base
+    const currentIndex = current ? history().map.get(current) ?? msgs.length : msgs.length
     const targetIndex = currentIndex + offset
     if (targetIndex < 0 || targetIndex > msgs.length) return
 
@@ -1175,6 +1188,8 @@ export default function Page() {
     document.removeEventListener("keydown", handleKeyDown)
     scrollSpy.destroy()
     if (scrollStateFrame !== undefined) cancelAnimationFrame(scrollStateFrame)
+    if (deferFrame !== undefined) cancelAnimationFrame(deferFrame)
+    if (deferTimer !== undefined) clearTimeout(deferTimer)
   })
 
   return (

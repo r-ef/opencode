@@ -60,6 +60,15 @@ export namespace Provider {
     return isGpt5OrLater(modelID) && !modelID.startsWith("gpt-5-mini")
   }
 
+  function lang(sdk: any, modelID: string) {
+    if (typeof sdk.languageModel === "function") return sdk.languageModel(modelID)
+    if (typeof sdk.chatModel === "function") return sdk.chatModel(modelID)
+    if (typeof sdk.completionModel === "function") return sdk.completionModel(modelID)
+    if (typeof sdk.chat === "function") return sdk.chat(modelID)
+    if (typeof sdk.responses === "function") return sdk.responses(modelID)
+    throw new Error(`Provider SDK does not expose a language model factory for ${modelID}`)
+  }
+
   function googleVertexVars(options: Record<string, any>) {
     const project =
       options["project"] ?? Env.get("GOOGLE_CLOUD_PROJECT") ?? Env.get("GCP_PROJECT") ?? Env.get("GCLOUD_PROJECT")
@@ -163,7 +172,7 @@ export namespace Provider {
       return {
         autoload: false,
         async getModel(sdk: any, modelID: string, _options?: Record<string, any>) {
-          if (sdk.responses === undefined && sdk.chat === undefined) return sdk.languageModel(modelID)
+          if (sdk.responses === undefined && sdk.chat === undefined) return lang(sdk, modelID)
           return shouldUseCopilotResponsesApi(modelID) ? sdk.responses(modelID) : sdk.chat(modelID)
         },
         options: {},
@@ -173,7 +182,7 @@ export namespace Provider {
       return {
         autoload: false,
         async getModel(sdk: any, modelID: string, _options?: Record<string, any>) {
-          if (sdk.responses === undefined && sdk.chat === undefined) return sdk.languageModel(modelID)
+          if (sdk.responses === undefined && sdk.chat === undefined) return lang(sdk, modelID)
           return shouldUseCopilotResponsesApi(modelID) ? sdk.responses(modelID) : sdk.chat(modelID)
         },
         options: {},
@@ -274,7 +283,7 @@ export namespace Provider {
           // Models from models.dev may already include prefixes like us., eu., global., etc.
           const crossRegionPrefixes = ["global.", "us.", "eu.", "jp.", "apac.", "au."]
           if (crossRegionPrefixes.some((prefix) => modelID.startsWith(prefix))) {
-            return sdk.languageModel(modelID)
+            return lang(sdk, modelID)
           }
 
           // Region resolution precedence (highest to lowest):
@@ -352,7 +361,7 @@ export namespace Provider {
             }
           }
 
-          return sdk.languageModel(modelID)
+          return lang(sdk, modelID)
         },
       }
     },
@@ -408,7 +417,7 @@ export namespace Provider {
         },
         async getModel(sdk: any, modelID: string) {
           const id = String(modelID).trim()
-          return sdk.languageModel(id)
+          return lang(sdk, id)
         },
       }
     },
@@ -425,7 +434,7 @@ export namespace Provider {
         },
         async getModel(sdk: any, modelID) {
           const id = String(modelID).trim()
-          return sdk.languageModel(id)
+          return lang(sdk, id)
         },
       }
     },
@@ -525,7 +534,7 @@ export namespace Provider {
           baseURL: `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1`,
         },
         async getModel(sdk: any, modelID: string) {
-          return sdk.languageModel(modelID)
+          return lang(sdk, modelID)
         },
       }
     },
@@ -1199,7 +1208,7 @@ export namespace Provider {
     try {
       const language = s.modelLoaders[model.providerID]
         ? await s.modelLoaders[model.providerID](sdk, model.api.id, provider.options)
-        : sdk.languageModel(model.api.id)
+        : lang(sdk, model.api.id)
       s.models.set(key, language)
       return language
     } catch (e) {

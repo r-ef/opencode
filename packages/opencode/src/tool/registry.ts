@@ -15,6 +15,7 @@ import {
   TaskBranchStatusTool,
   TaskBranchApplyTool,
   TaskContextReconcileTool,
+  TaskCoordinateTool,
 } from "./task"
 import { TodoWriteTool, TodoReadTool } from "./todo"
 import { WebFetchTool } from "./webfetch"
@@ -136,6 +137,7 @@ export namespace ToolRegistry {
       TaskBranchStatusTool,
       TaskBranchApplyTool,
       TaskContextReconcileTool,
+      TaskCoordinateTool,
       TaskStatusTool,
       TaskCancelTool,
       TaskWatchTool,
@@ -146,8 +148,8 @@ export namespace ToolRegistry {
       CodeSearchTool,
       SkillTool,
       ApplyPatchTool,
+      BatchTool,
       ...(Flag.OPENCODE_EXPERIMENTAL_LSP_TOOL ? [LspTool] : []),
-      ...(config.experimental?.batch_tool === true ? [BatchTool] : []),
       ...(Flag.OPENCODE_EXPERIMENTAL_PLAN_MODE && Flag.OPENCODE_CLIENT === "cli" ? [PlanExitTool] : []),
       ...custom,
     ]

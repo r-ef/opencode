@@ -46,6 +46,9 @@ import { iife } from "@/util/iife"
 import { Shell } from "@/shell/shell"
 import { Truncate } from "@/tool/truncation"
 import { Lock } from "@/util/lock"
+import { SessionContextBuilder } from "./context-builder"
+import { SessionMemory } from "./memory"
+import { Config } from "@/config/config"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -106,6 +109,7 @@ export namespace SessionPrompt {
       .describe(
         "@deprecated tools and permissions have been merged, you can set permissions on the session itself now",
       ),
+    permission: PermissionNext.Ruleset.optional(),
     format: MessageV2.Format.optional(),
     system: z.string().optional(),
     variant: z.string().optional(),
@@ -162,23 +166,31 @@ export namespace SessionPrompt {
       fn: async (session) => {
         await SessionRevert.cleanup(session)
 
-        const message = await createUserMessage(input)
-        await Session.touch(input.sessionID)
-
-        // this is backwards compatibility for allowing `tools` to be specified when
-        // prompting
-        const permissions: PermissionNext.Ruleset = []
+        const rules: PermissionNext.Ruleset = []
         for (const [tool, enabled] of Object.entries(input.tools ?? {})) {
-          permissions.push({
+          rules.push({
             permission: tool,
             action: enabled ? "allow" : "deny",
             pattern: "*",
           })
         }
-        if (permissions.length > 0) {
-          session.permission = permissions
-          await Session.setPermission({ sessionID: session.id, permission: permissions })
+        const permission = input.permission || rules.length ? PermissionNext.merge(input.permission ?? [], rules) : undefined
+        const tools = {
+          ...(input.tools ?? {}),
         }
+        if (permission) {
+          const disabled = PermissionNext.disabled(await ToolRegistry.ids(), permission)
+          for (const id of disabled) tools[id] = false
+          session.permission = permission
+          await Session.setPermission({ sessionID: session.id, permission })
+        }
+
+        const message = await createUserMessage({
+          ...input,
+          tools: Object.keys(tools).length ? tools : undefined,
+          permission,
+        })
+        await Session.touch(input.sessionID)
 
         if (input.noReply === true) {
           return message
@@ -190,19 +202,23 @@ export namespace SessionPrompt {
   })
 
   export async function resolvePromptParts(template: string): Promise<PromptInput["parts"]> {
-    const parts: PromptInput["parts"] = [
+    const list: PromptInput["parts"] = [
       {
         type: "text",
         text: template,
       },
     ]
-    const files = ConfigMarkdown.files(template)
     const seen = new Set<string>()
-    await Promise.all(
-      files.map(async (match) => {
-        const name = match[1]
-        if (seen.has(name)) return
+    const refs = ConfigMarkdown.files(template)
+      .map((match) => match[1])
+      .filter((name) => {
+        if (seen.has(name)) return false
         seen.add(name)
+        return true
+      })
+
+    const extra = await Promise.all(
+      refs.map(async (name) => {
         const filepath = name.startsWith("~/")
           ? path.join(os.homedir(), name.slice(2))
           : path.resolve(Instance.worktree, name)
@@ -210,34 +226,64 @@ export namespace SessionPrompt {
         const stats = await fs.stat(filepath).catch(() => undefined)
         if (!stats) {
           const agent = await Agent.get(name)
-          if (agent) {
-            parts.push({
-              type: "agent",
-              name: agent.name,
-            })
-          }
-          return
+          if (!agent) return
+          return {
+            type: "agent",
+            name: agent.name,
+          } satisfies PromptInput["parts"][number]
         }
 
         if (stats.isDirectory()) {
-          parts.push({
+          return {
             type: "file",
             url: pathToFileURL(filepath).href,
             filename: name,
             mime: "application/x-directory",
-          })
-          return
+          } satisfies PromptInput["parts"][number]
         }
 
-        parts.push({
+        return {
           type: "file",
           url: pathToFileURL(filepath).href,
           filename: name,
           mime: "text/plain",
-        })
+        } satisfies PromptInput["parts"][number]
       }),
     )
-    return parts
+
+    list.push(
+      ...extra.filter(
+        (
+          item,
+        ): item is Exclude<(typeof extra)[number], undefined> => item !== undefined,
+      ),
+    )
+    return list
+  }
+
+  function coordHead(item: Session.CoordinationInfo) {
+    return [
+      item.kind === "request"
+        ? "Sibling request"
+        : item.kind === "answer"
+          ? "Sibling answer"
+          : item.kind === "claim"
+            ? "Sibling claim"
+            : item.kind === "conflict"
+              ? "Sibling conflict"
+              : item.kind === "resolution"
+                ? "Sibling resolution"
+                : "Sibling update",
+      item.title,
+      item.to_agent ? `for ${item.to_agent}` : undefined,
+      item.status === "open" || item.status === "claimed" ? undefined : `status ${item.status}`,
+    ]
+      .filter(Boolean)
+      .join(" · ")
+  }
+
+  function coordLine(item: Session.CoordinationInfo) {
+    return [`- ${coordHead(item)}`, item.body].join("\n")
   }
 
   function start(sessionID: string) {
@@ -271,6 +317,43 @@ export namespace SessionPrompt {
     SessionStatus.set(sessionID, { type: "idle" })
     return
   }
+
+  export const FollowupInput = z.object({
+    sessionID: Identifier.schema("session"),
+    text: z.string(),
+    agent: z.string().optional(),
+    model: z
+      .object({
+        providerID: z.string(),
+        modelID: z.string(),
+      })
+      .optional(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
+    run: z.boolean().optional(),
+  })
+  export type FollowupInput = z.infer<typeof FollowupInput>
+  export const followup = fn(FollowupInput, async (input) => {
+    const msg = await prompt({
+      sessionID: input.sessionID,
+      agent: input.agent ?? (await lastAgent(input.sessionID)),
+      model: input.model ?? (await lastModel(input.sessionID)),
+      noReply: true,
+      parts: [
+        {
+          type: "text",
+          text: input.text,
+          synthetic: true,
+          metadata: input.metadata,
+        },
+      ],
+    })
+    if (input.run === false) return msg
+    if (resume(input.sessionID)) return msg
+    void loop({ sessionID: input.sessionID }).catch((error) => {
+      log.error("session loop failed after followup", { sessionID: input.sessionID, error })
+    })
+    return msg
+  })
 
   export const LoopInput = z.object({
     sessionID: Identifier.schema("session"),
@@ -523,6 +606,23 @@ export namespace SessionPrompt {
             system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
           }
 
+          const built = await SessionContextBuilder.build({
+            sessionID,
+            model,
+            user: lastUser,
+            messages: msgs,
+          })
+
+          if (await SessionCompaction.needsCheckpoint({ messages: built.messages, model })) {
+            await SessionCompaction.create({
+              sessionID,
+              agent: lastUser.agent,
+              model: lastUser.model,
+              auto: true,
+            })
+            continue
+          }
+
           const result = await processor.process({
             user: lastUser,
             agent,
@@ -530,7 +630,7 @@ export namespace SessionPrompt {
             sessionID,
             system,
             messages: [
-              ...MessageV2.toModelMessages(msgs, model),
+              ...built.messages,
               ...(isLastStep
                 ? [
                     {
@@ -543,7 +643,15 @@ export namespace SessionPrompt {
             tools,
             model,
             toolChoice: format.type === "json_schema" ? "required" : undefined,
+            checkpoint: built.checkpoint,
           })
+
+          if (processor.message.summary !== true && (await Config.get()).compaction?.extract_continuously !== false) {
+            await SessionMemory.extract({
+              sessionID,
+              messageID: lastUser.id,
+            }).catch(() => [])
+          }
 
           // If structured output was captured, save it and exit immediately
           // This takes priority because the StructuredOutput tool was called successfully
@@ -763,6 +871,13 @@ export namespace SessionPrompt {
       if (item.info.role === "user" && item.info.model) return item.info.model
     }
     return Provider.defaultModel()
+  }
+
+  async function lastAgent(sessionID: string) {
+    for await (const item of MessageV2.stream(sessionID)) {
+      if (item.info.role === "user" && item.info.agent) return item.info.agent
+    }
+    return Agent.defaultAgent()
   }
 
   /** @internal Exported for testing */
@@ -1367,6 +1482,50 @@ export namespace SessionPrompt {
       )
     }
 
+    using _coord = await Lock.write(`session-coordination:${input.sessionID}`)
+    const coord = await Session.coordinationActionable({
+      session_id: input.sessionID,
+      agent: agent.name,
+      limit: 10,
+    })
+    if (coord.entries.length) {
+      const seen = new Set<string>()
+      const rows = await Promise.all(
+        coord.entries.map(async (item) => {
+          if (!item.request_id || seen.has(item.request_id)) return coordLine(item)
+          seen.add(item.request_id)
+          const thread = await Session.coordinationThread({
+            session_id: input.sessionID,
+            request_id: item.request_id,
+            before: item.id,
+            limit: 4,
+          })
+          return [
+            coordLine(item),
+            ...thread
+              .filter((row) => row.id !== item.id)
+              .map((row) => {
+                return [`  - ${coordHead(row)}`, `    ${row.body}`].join("\n")
+              }),
+          ].join("\n")
+        }),
+      )
+      parts.unshift(
+        assign({
+          messageID: info.id,
+          sessionID: input.sessionID,
+          type: "text",
+          synthetic: true,
+          metadata: {
+            coordination: true,
+            coordination_cursor: coord.cursor,
+            coordination_count: coord.entries.length,
+          },
+          text: ["Agent collaboration updates:", ...rows].join("\n"),
+        }),
+      )
+    }
+
     await Plugin.trigger(
       "chat.message",
       {
@@ -1392,6 +1551,12 @@ export namespace SessionPrompt {
         cursor: next,
       })
     }
+    if (coord.cursor > 0) {
+      await Session.coordinationMark({
+        session_id: input.sessionID,
+        cursor: coord.cursor,
+      })
+    }
 
     return {
       info,
@@ -1402,6 +1567,25 @@ export namespace SessionPrompt {
   async function insertReminders(input: { messages: MessageV2.WithParts[]; agent: Agent.Info; session: Session.Info }) {
     const userMessage = input.messages.findLast((msg) => msg.info.role === "user")
     if (!userMessage) return input.messages
+
+    if (input.session.kind === "subagent") {
+      userMessage.parts.push({
+        id: Identifier.ascending("part"),
+        messageID: userMessage.info.id,
+        sessionID: userMessage.info.sessionID,
+        type: "text",
+        text: [
+          "<system-reminder>",
+          "When collaborating with sibling subagents, use task_coordinate for directed requests, handoffs, claims, answers, and resolutions.",
+          "Use shared context for broad publishable results that the whole root session tree should see.",
+          "Prefer ambient background progress handled by the harness over manual watch loops.",
+          "Do not poll task_watch unless the user explicitly wants task internals or live debugging detail.",
+          "Do not wait indefinitely for sibling replies. Continue with best effort and escalate ambiguity or deadlock to the parent.",
+          "</system-reminder>",
+        ].join("\n"),
+        synthetic: true,
+      })
+    }
 
     // Original logic when experimental plan mode is disabled
     if (!Flag.OPENCODE_EXPERIMENTAL_PLAN_MODE) {
@@ -1995,21 +2179,22 @@ NOTE: At any point in time through this workflow you should feel free to ask the
     if (input.session.kind === "subagent") return
     if (!Session.isDefaultTitle(input.session.title)) return
 
-    // Find first non-synthetic user message
-    const firstRealUserIdx = input.history.findIndex(
-      (m) => m.info.role === "user" && !m.parts.every((p) => "synthetic" in p && p.synthetic),
-    )
-    if (firstRealUserIdx === -1) return
-
-    const isFirst =
-      input.history.filter((m) => m.info.role === "user" && !m.parts.every((p) => "synthetic" in p && p.synthetic))
-        .length === 1
-    if (!isFirst) return
+    let first = -1
+    let count = 0
+    for (let i = 0; i < input.history.length; i++) {
+      const msg = input.history[i]
+      if (msg.info.role !== "user") continue
+      if (msg.parts.every((p) => "synthetic" in p && p.synthetic)) continue
+      count += 1
+      if (first === -1) first = i
+      if (count > 1) return
+    }
+    if (first === -1) return
 
     // Gather all messages up to and including the first real user message for context
     // This includes any shell/subtask executions that preceded the user's first prompt
-    const contextMessages = input.history.slice(0, firstRealUserIdx + 1)
-    const firstRealUser = contextMessages[firstRealUserIdx]
+    const contextMessages = input.history.slice(0, first + 1)
+    const firstRealUser = contextMessages[first]
 
     // For subtask-only messages (from command invocations), extract the prompt directly
     // since toModelMessage converts subtask parts to generic "The following tool was executed by the user"

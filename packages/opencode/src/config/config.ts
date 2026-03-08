@@ -923,7 +923,7 @@ export namespace Config {
       port: z.number().int().positive().optional().describe("Port to listen on"),
       hostname: z.string().optional().describe("Hostname to listen on"),
       mdns: z.boolean().optional().describe("Enable mDNS service discovery"),
-      mdnsDomain: z.string().optional().describe("Custom domain name for mDNS service (default: opencode.local)"),
+      mdnsDomain: z.string().optional().describe("Custom domain name for mDNS service (default: selene.local)"),
       cors: z.array(z.string()).optional().describe("Additional domains to allow for CORS"),
     })
     .strict()
@@ -1144,8 +1144,29 @@ export namespace Config {
         .optional(),
       compaction: z
         .object({
+          strategy: z
+            .enum(["hybrid", "openai", "anthropic", "local"])
+            .optional()
+            .describe("Compaction strategy. 'hybrid' uses local memory/checkpoints with provider-aware hints."),
           auto: z.boolean().optional().describe("Enable automatic compaction when context is full (default: true)"),
           prune: z.boolean().optional().describe("Enable pruning of old tool outputs (default: true)"),
+          extract_continuously: z
+            .boolean()
+            .optional()
+            .describe("Continuously extract durable memory from completed turns and tool outputs (default: true)"),
+          hot_window_tokens: z
+            .number()
+            .int()
+            .min(512)
+            .optional()
+            .describe("Approximate token budget reserved for recent verbatim turns before memory retrieval."),
+          retrieve_limit: z
+            .number()
+            .int()
+            .min(1)
+            .max(64)
+            .optional()
+            .describe("Maximum number of durable memory entries to retrieve for a turn."),
           reserved: z
             .number()
             .int()

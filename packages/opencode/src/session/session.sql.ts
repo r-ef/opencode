@@ -143,3 +143,52 @@ export const SessionContextStateTable = sqliteTable(
     index("session_context_state_cursor_idx").on(table.cursor),
   ],
 )
+
+export const SessionCoordinationTable = sqliteTable(
+  "session_coordination",
+  {
+    id: integer().primaryKey({ autoIncrement: true }),
+    root_session_id: text()
+      .notNull()
+      .references(() => SessionTable.id, { onDelete: "cascade" }),
+    from_session_id: text()
+      .notNull()
+      .references(() => SessionTable.id, { onDelete: "cascade" }),
+    to_session_id: text().references(() => SessionTable.id, { onDelete: "cascade" }),
+    to_agent: text(),
+    request_id: text(),
+    kind: text().notNull(),
+    status: text().notNull(),
+    title: text(),
+    body: text().notNull(),
+    metadata: text({ mode: "json" }).$type<Record<string, unknown>>(),
+    ...Timestamps,
+  },
+  (table) => [
+    index("session_coordination_root_session_id_idx").on(table.root_session_id),
+    index("session_coordination_from_session_id_idx").on(table.from_session_id),
+    index("session_coordination_to_session_id_idx").on(table.to_session_id),
+    index("session_coordination_to_agent_idx").on(table.to_agent),
+    index("session_coordination_request_id_idx").on(table.request_id),
+    index("session_coordination_status_idx").on(table.status),
+    index("session_coordination_time_created_idx").on(table.time_created),
+  ],
+)
+
+export const SessionCoordinationStateTable = sqliteTable(
+  "session_coordination_state",
+  {
+    session_id: text()
+      .primaryKey()
+      .references(() => SessionTable.id, { onDelete: "cascade" }),
+    root_session_id: text()
+      .notNull()
+      .references(() => SessionTable.id, { onDelete: "cascade" }),
+    cursor: integer().notNull(),
+    ...Timestamps,
+  },
+  (table) => [
+    index("session_coordination_state_root_session_id_idx").on(table.root_session_id),
+    index("session_coordination_state_cursor_idx").on(table.cursor),
+  ],
+)

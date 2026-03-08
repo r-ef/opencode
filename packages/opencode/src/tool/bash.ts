@@ -1,5 +1,7 @@
 import z from "zod"
 import { spawn } from "child_process"
+import * as fs from "fs/promises"
+import os from "os"
 import { Tool } from "./tool"
 import path from "path"
 import DESCRIPTION from "./bash.txt"
@@ -8,7 +10,6 @@ import { Instance } from "../project/instance"
 import { lazy } from "@/util/lazy"
 import { Language } from "web-tree-sitter"
 
-import { $ } from "bun"
 import { Filesystem } from "@/util/filesystem"
 import { fileURLToPath } from "url"
 import { Flag } from "@/flag/flag.ts"
@@ -50,6 +51,27 @@ const parser = lazy(async () => {
   p.setLanguage(bashLanguage)
   return p
 })
+
+const trim = (input: string) => {
+  if ((input.startsWith('"') && input.endsWith('"')) || (input.startsWith("'") && input.endsWith("'"))) {
+    return input.slice(1, -1)
+  }
+  return input
+}
+
+const expand = (input: string) => {
+  if (input === "~") return os.homedir()
+  if (input.startsWith("~/")) return path.join(os.homedir(), input.slice(2))
+  if (input === "$HOME") return os.homedir()
+  if (input.startsWith("$HOME/")) return path.join(os.homedir(), input.slice(6))
+  return input
+}
+
+const resolve = async (input: string, cwd: string) => {
+  const next = expand(trim(input))
+  const full = path.isAbsolute(next) ? next : path.resolve(cwd, next)
+  return fs.realpath(full).catch(() => full)
+}
 
 // TODO: we may wanna rename this tool so it works better on other shells
 export const BashTool = Tool.define("bash", async () => {
@@ -116,20 +138,13 @@ export const BashTool = Tool.define("bash", async () => {
         if (["cd", "rm", "cp", "mv", "mkdir", "touch", "chmod", "chown", "cat"].includes(command[0])) {
           for (const arg of command.slice(1)) {
             if (arg.startsWith("-") || (command[0] === "chmod" && arg.startsWith("+"))) continue
-            const resolved = await $`realpath ${arg}`
-              .cwd(cwd)
-              .quiet()
-              .nothrow()
-              .text()
-              .then((x) => x.trim())
-            log.info("resolved path", { arg, resolved })
-            if (resolved) {
-              const normalized =
-                process.platform === "win32" ? Filesystem.windowsPath(resolved).replace(/\//g, "\\") : resolved
-              if (!Instance.containsPath(normalized)) {
-                const dir = (await Filesystem.isDir(normalized)) ? normalized : path.dirname(normalized)
-                directories.add(dir)
-              }
+            const found = await resolve(arg, cwd)
+            log.info("resolved path", { arg, found })
+            const normalized =
+              process.platform === "win32" ? Filesystem.windowsPath(found).replace(/\//g, "\\") : found
+            if (!Instance.containsPath(normalized)) {
+              const dir = (await Filesystem.isDir(normalized)) ? normalized : path.dirname(normalized)
+              directories.add(dir)
             }
           }
         }
@@ -181,24 +196,37 @@ export const BashTool = Tool.define("bash", async () => {
       })
 
       let output = ""
+      let dirty = false
+      let at = 0
+      let timer: ReturnType<typeof setTimeout> | undefined
 
-      // Initialize metadata with empty output
-      ctx.metadata({
-        metadata: {
-          output: "",
-          description: params.description,
-        },
-      })
-
-      const append = (chunk: Buffer) => {
-        output += chunk.toString()
+      const meta = (force = false) => {
+        if (!dirty && !force) return
+        const now = Date.now()
+        if (!force && now - at < 50) {
+          if (timer) return
+          timer = setTimeout(() => {
+            timer = undefined
+            meta(true)
+          }, 50 - (now - at))
+          return
+        }
+        dirty = false
+        at = now
         ctx.metadata({
           metadata: {
-            // truncate the metadata to avoid GIANT blobs of data (has nothing to do w/ what agent can access)
             output: output.length > MAX_METADATA_LENGTH ? output.slice(0, MAX_METADATA_LENGTH) + "\n\n..." : output,
             description: params.description,
           },
         })
+      }
+
+      meta(true)
+
+      const append = (chunk: Buffer) => {
+        output += chunk.toString()
+        dirty = true
+        meta()
       }
 
       proc.stdout?.on("data", append)
@@ -259,6 +287,9 @@ export const BashTool = Tool.define("bash", async () => {
       if (resultMetadata.length > 0) {
         output += "\n\n<bash_metadata>\n" + resultMetadata.join("\n") + "\n</bash_metadata>"
       }
+      if (timer) clearTimeout(timer)
+      dirty = true
+      meta(true)
 
       return {
         title: params.description,

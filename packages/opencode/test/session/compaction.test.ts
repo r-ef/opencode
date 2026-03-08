@@ -7,6 +7,7 @@ import { Log } from "../../src/util/log"
 import { tmpdir } from "../fixture/fixture"
 import { Session } from "../../src/session"
 import type { Provider } from "../../src/provider/provider"
+import { Auth } from "../../src/auth"
 
 Log.init({ print: false })
 
@@ -222,6 +223,78 @@ describe("session.compaction.isOverflow", () => {
         const model = createModel({ context: 100_000, output: 32_000 })
         const tokens = { input: 75_000, output: 5_000, reasoning: 0, cache: { read: 0, write: 0 } }
         expect(await SessionCompaction.isOverflow({ tokens, model })).toBe(false)
+      },
+    })
+  })
+})
+
+describe("session.compaction.native", () => {
+  test("uses OpenAI compact API to replace checkpoint response ids", async () => {
+    await using tmp = await tmpdir({
+      config: {
+        provider: {
+          openai: {
+            options: {},
+          },
+        },
+      },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const hit: Array<{ auth?: string; body?: Record<string, unknown> }> = []
+        const server = Bun.serve({
+          port: 0,
+          fetch: async (req) => {
+            hit.push({
+              auth: req.headers.get("authorization") ?? undefined,
+              body: (await req.json()) as Record<string, unknown>,
+            })
+            return Response.json({ id: "resp_compact" })
+          },
+        })
+        await using _ = {
+          async [Symbol.asyncDispose]() {
+            await server.stop(true)
+          },
+        }
+        await Auth.set("openai", {
+          type: "api",
+          key: "test-openai-key",
+        })
+        const model = {
+          ...createModel({ context: 200_000, output: 32_000, npm: "@ai-sdk/openai" }),
+          id: "openai/gpt-5.2",
+          providerID: "openai",
+          api: {
+            id: "gpt-5.2",
+            url: `http://127.0.0.1:${server.port}`,
+            npm: "@ai-sdk/openai",
+          },
+        } as Provider.Model
+
+        const result = await SessionCompaction.native({
+          model,
+          provider: {
+            openai: {
+              response_id: "resp_prev",
+            },
+          },
+        })
+
+        expect(result).toEqual({
+          openai: {
+            response_id: "resp_compact",
+          },
+        })
+        expect(hit).toHaveLength(1)
+        expect(hit[0]).toEqual({
+          auth: "Bearer test-openai-key",
+          body: {
+            model: "gpt-5.2",
+            previous_response_id: "resp_prev",
+          },
+        })
       },
     })
   })

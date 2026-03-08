@@ -259,6 +259,7 @@ export namespace SessionProcessor {
                     type: "step-finish",
                     tokens: usage.tokens,
                     cost: usage.cost,
+                    metadata: value.providerMetadata,
                   })
                   await Session.updateMessage(input.assistantMessage)
                   if (snapshot) {

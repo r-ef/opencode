@@ -23,7 +23,9 @@ import { useLanguage } from "@/context/language"
 import { useSettings } from "@/context/settings"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
+import { sessionPermissionRequest, sessionQuestionRequest } from "@/pages/session/composer/session-request-tree"
 import { parseCommentNote, readCommentMetadata } from "@/utils/comment-note"
+import { same } from "@/utils/same"
 
 type MessageComment = {
   path: string
@@ -242,15 +244,6 @@ export function MessageTimeline(props: {
     return sync.data.message[id] ?? emptyMessages
   })
 
-  createEffect(() => {
-    const id = sessionID()
-    if (!id) return
-    void sync.session.sync(id)
-    const timer = setInterval(() => {
-      void sync.session.sync(id)
-    }, 1000)
-    onCleanup(() => clearInterval(timer))
-  })
   const pending = createMemo(() =>
     sessionMessages().findLast(
       (item): item is AssistantMessage => item.role === "assistant" && typeof item.time.completed !== "number",
@@ -260,6 +253,32 @@ export function MessageTimeline(props: {
     const id = sessionID()
     if (!id) return idle
     return sync.data.session_status[id] ?? idle
+  })
+  const blocked = createMemo(() => {
+    const id = sessionID()
+    if (!id) return false
+    return !!sessionQuestionRequest(sync.data.session, sync.data.question, id) ||
+      !!sessionPermissionRequest(sync.data.session, sync.data.permission, id)
+  })
+  createEffect(
+    on(
+      sessionID,
+      (id) => {
+        if (!id) return
+        void sync.session.sync(id)
+      },
+      { defer: true },
+    ),
+  )
+  createEffect(() => {
+    const id = sessionID()
+    if (!id) return
+    if (blocked()) return
+    if (!pending() && sessionStatus().type === "idle") return
+    const timer = setInterval(() => {
+      void sync.session.sync(id)
+    }, 1000)
+    onCleanup(() => clearInterval(timer))
   })
   const activeMessageID = createMemo(() => {
     const parentID = pending()?.parentID
@@ -294,12 +313,8 @@ export function MessageTimeline(props: {
   )
   createEffect(() => {
     const id = sessionID()
-    if (!id || info()?.kind !== "interactive") return
+    if (!id || info()?.kind !== "interactive" || blocked()) return
     void refetchBranches()
-    const timer = setInterval(() => {
-      void refetchBranches()
-    }, 5_000)
-    onCleanup(() => clearInterval(timer))
   })
 
   const branches = createMemo(() =>
@@ -316,7 +331,10 @@ export function MessageTimeline(props: {
   const showHeader = createMemo(() => !!(titleValue() || parentID()))
   const linked = createMemo(() => {
     const ids = new Set<string>()
-    for (const item of branches()) ids.add(item.id)
+    const session = sessionID()
+    for (const item of branches()) {
+      if (item.id !== session) ids.add(item.id)
+    }
     for (const msg of sessionMessages()) {
       const parts = sync.data.part[msg.id] ?? []
       for (const part of parts) {
@@ -339,25 +357,31 @@ export function MessageTimeline(props: {
         }
         const win = meta?.winner
         if (win && typeof win === "object" && "sessionId" in win && typeof win.sessionId === "string") {
-          ids.add(win.sessionId)
+          if (win.sessionId !== session) ids.add(win.sessionId)
         }
       }
     }
     return [...ids]
-  })
+  }, [] as string[], { equals: same })
 
-  createEffect(() => {
-    const ids = linked()
-    ids.forEach((id) => {
-      void sync.session.sync(id)
-    })
-    const timer = setInterval(() => {
-      ids.forEach((id) => {
-        void sync.session.sync(id)
-      })
-    }, 5_000)
-    onCleanup(() => clearInterval(timer))
-  })
+  createEffect(
+    on(
+      linked,
+      (ids) => {
+        if (blocked() || ids.length === 0) return
+        ids.forEach((id) => {
+          void sync.session.sync(id)
+        })
+        const timer = setInterval(() => {
+          ids.forEach((id) => {
+            void sync.session.sync(id)
+          })
+        }, 5_000)
+        onCleanup(() => clearInterval(timer))
+      },
+      { defer: true },
+    ),
+  )
   const stageCfg = { init: 1, batch: 3 }
   const staging = createTimelineStaging({
     sessionKey,
@@ -746,9 +770,8 @@ export function MessageTimeline(props: {
                         </Show>
                       </Show>
                     </div>
-                    <Show when={sessionID()} keyed>
-                      {(id) => (
-                        <div class="shrink-0 flex items-center gap-3">
+                    <Show when={sessionID()}>
+                      <div class="shrink-0 flex items-center gap-3">
                           <SessionContextUsage placement="bottom" />
                           <DropdownMenu
                             gutter={4}
@@ -789,12 +812,12 @@ export function MessageTimeline(props: {
                                     <DropdownMenu.ItemLabel>Branches</DropdownMenu.ItemLabel>
                                   </DropdownMenu.Item>
                                 </Show>
-                                <DropdownMenu.Item onSelect={() => void archiveSession(id)}>
+                                <DropdownMenu.Item onSelect={() => void archiveSession(sessionID()!)}>
                                   <DropdownMenu.ItemLabel>{language.t("common.archive")}</DropdownMenu.ItemLabel>
                                 </DropdownMenu.Item>
                                 <DropdownMenu.Separator />
                                 <DropdownMenu.Item
-                                  onSelect={() => dialog.show(() => <DialogDeleteSession sessionID={id} />)}
+                                  onSelect={() => dialog.show(() => <DialogDeleteSession sessionID={sessionID()!} />)}
                                 >
                                   <DropdownMenu.ItemLabel>{language.t("common.delete")}</DropdownMenu.ItemLabel>
                                 </DropdownMenu.Item>
@@ -802,7 +825,6 @@ export function MessageTimeline(props: {
                             </DropdownMenu.Portal>
                           </DropdownMenu>
                         </div>
-                      )}
                     </Show>
                   </div>
                   <Show when={branchVisible()}>

@@ -25,7 +25,7 @@ export const SessionRoutes = lazy(() =>
       "/",
       describeRoute({
         summary: "List sessions",
-        description: "Get a list of all OpenCode sessions, sorted by most recently updated.",
+        description: "Get a list of all Selene sessions, sorted by most recently updated.",
         operationId: "session.list",
         responses: {
           200: {
@@ -42,7 +42,10 @@ export const SessionRoutes = lazy(() =>
         "query",
         z.object({
           directory: z.string().optional().meta({ description: "Filter sessions by project directory" }),
-          roots: z.coerce.boolean().optional().meta({ description: "Only return interactive sessions (exclude subagents)" }),
+          roots: z.coerce
+            .boolean()
+            .optional()
+            .meta({ description: "Only return interactive sessions (exclude subagents)" }),
           start: z.coerce
             .number()
             .optional()
@@ -210,7 +213,10 @@ export const SessionRoutes = lazy(() =>
       validator(
         "query",
         z.object({
-          source_session_id: z.string().optional().meta({ description: "Optional source session to scope published stats" }),
+          source_session_id: z
+            .string()
+            .optional()
+            .meta({ description: "Optional source session to scope published stats" }),
           kind: z.string().optional().meta({ description: "Optional context kind filter for published stats" }),
         }),
       ),
@@ -229,7 +235,8 @@ export const SessionRoutes = lazy(() =>
       "/:sessionID/context",
       describeRoute({
         summary: "List shared context",
-        description: "List shared-context entries for the root session tree, optionally filtered by cursor, source session, or kind.",
+        description:
+          "List shared-context entries for the root session tree, optionally filtered by cursor, source session, or kind.",
         operationId: "session.context",
         responses: {
           200: {
@@ -252,11 +259,17 @@ export const SessionRoutes = lazy(() =>
       validator(
         "query",
         z.object({
-          after: z.coerce.number().optional().meta({ description: "Return context entries strictly after this cursor id" }),
+          after: z.coerce
+            .number()
+            .optional()
+            .meta({ description: "Return context entries strictly after this cursor id" }),
           limit: z.coerce.number().optional().meta({ description: "Maximum number of context entries to return" }),
           source_session_id: z.string().optional().meta({ description: "Optional source session filter" }),
           kind: z.string().optional().meta({ description: "Optional context kind filter" }),
-          include_self: z.coerce.boolean().optional().meta({ description: "Include entries authored by the target session" }),
+          include_self: z.coerce
+            .boolean()
+            .optional()
+            .meta({ description: "Include entries authored by the target session" }),
         }),
       ),
       async (c) => {
@@ -269,6 +282,105 @@ export const SessionRoutes = lazy(() =>
           source_session_id: query.source_session_id,
           kind: query.kind,
           include_self: query.include_self ?? true,
+        })
+        return c.json(result)
+      },
+    )
+    .get(
+      "/:sessionID/coordination",
+      describeRoute({
+        summary: "List coordination entries",
+        description:
+          "List durable coordination entries for the root session tree, optionally filtered by cursor, source, target, request, kind, or status.",
+        operationId: "session.coordination",
+        responses: {
+          200: {
+            description: "Coordination entries",
+            content: {
+              "application/json": {
+                schema: resolver(Session.CoordinationInfo.array()),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator(
+        "param",
+        z.object({
+          sessionID: z.string().meta({ description: "Session ID" }),
+        }),
+      ),
+      validator(
+        "query",
+        z.object({
+          after: z.coerce.number().optional().meta({ description: "Return entries strictly after this cursor id" }),
+          limit: z.coerce.number().optional().meta({ description: "Maximum number of entries to return" }),
+          source_session_id: z.string().optional().meta({ description: "Optional source session filter" }),
+          target_session_id: z.string().optional().meta({ description: "Optional target session filter" }),
+          target_agent: z.string().optional().meta({ description: "Optional target agent filter" }),
+          request_id: z.string().optional().meta({ description: "Optional request thread filter" }),
+          kind: Session.CoordinationKind.optional().meta({ description: "Optional coordination kind filter" }),
+          status: Session.CoordinationStatus.optional().meta({ description: "Optional coordination status filter" }),
+          include_self: z.coerce.boolean().optional().meta({ description: "Include entries authored by the target session" }),
+        }),
+      ),
+      async (c) => {
+        const params = c.req.valid("param")
+        const query = c.req.valid("query")
+        const result = await Session.coordinationList({
+          session_id: params.sessionID,
+          after: query.after,
+          limit: query.limit,
+          source_session_id: query.source_session_id,
+          target_session_id: query.target_session_id,
+          target_agent: query.target_agent,
+          request_id: query.request_id,
+          kind: query.kind,
+          status: query.status,
+          include_self: query.include_self ?? true,
+        })
+        return c.json(result)
+      },
+    )
+    .get(
+      "/:sessionID/coordination/actionable",
+      describeRoute({
+        summary: "Get actionable coordination",
+        description: "Return unread coordination entries currently actionable for the target session and agent.",
+        operationId: "session.coordinationActionable",
+        responses: {
+          200: {
+            description: "Actionable coordination feed",
+            content: {
+              "application/json": {
+                schema: resolver(Session.CoordinationFeed),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator(
+        "param",
+        z.object({
+          sessionID: z.string().meta({ description: "Session ID" }),
+        }),
+      ),
+      validator(
+        "query",
+        z.object({
+          agent: z.string().optional().meta({ description: "Current agent name for to_agent routing" }),
+          limit: z.coerce.number().optional().meta({ description: "Maximum number of actionable entries to return" }),
+        }),
+      ),
+      async (c) => {
+        const params = c.req.valid("param")
+        const query = c.req.valid("query")
+        const result = await Session.coordinationActionable({
+          session_id: params.sessionID,
+          agent: query.agent,
+          limit: query.limit,
         })
         return c.json(result)
       },
@@ -301,6 +413,78 @@ export const SessionRoutes = lazy(() =>
         const sessionID = c.req.valid("param").sessionID
         const todos = await Todo.get(sessionID)
         return c.json(todos)
+      },
+    )
+    .post(
+      "/:sessionID/coordination",
+      describeRoute({
+        summary: "Publish coordination entry",
+        description: "Append a durable coordination entry for directed subagent collaboration inside a root session tree.",
+        operationId: "session.coordinationWrite",
+        responses: {
+          200: {
+            description: "Coordination entry",
+            content: {
+              "application/json": {
+                schema: resolver(Session.CoordinationInfo),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator(
+        "param",
+        z.object({
+          sessionID: z.string().meta({ description: "Session ID" }),
+        }),
+      ),
+      validator("json", Session.coordinationWrite.schema.omit({ session_id: true })),
+      async (c) => {
+        const sessionID = c.req.valid("param").sessionID
+        const body = c.req.valid("json")
+        const result = await Session.coordinationWrite({
+          session_id: sessionID,
+          ...body,
+        })
+        return c.json(result)
+      },
+    )
+    .patch(
+      "/:sessionID/coordination/:coordinationID",
+      describeRoute({
+        summary: "Update coordination entry",
+        description: "Update the status or payload of an existing durable coordination entry.",
+        operationId: "session.coordinationUpdate",
+        responses: {
+          200: {
+            description: "Updated coordination entry",
+            content: {
+              "application/json": {
+                schema: resolver(Session.CoordinationInfo),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator(
+        "param",
+        z.object({
+          sessionID: z.string().meta({ description: "Session ID" }),
+          coordinationID: z.coerce.number().int().positive().meta({ description: "Coordination entry id" }),
+        }),
+      ),
+      validator("json", Session.coordinationUpdate.schema.omit({ session_id: true, coordination_id: true })),
+      async (c) => {
+        const params = c.req.valid("param")
+        const body = c.req.valid("json")
+        const result = await Session.coordinationUpdate({
+          session_id: params.sessionID,
+          coordination_id: params.coordinationID,
+          ...body,
+        })
+        return c.json(result)
       },
     )
     .post(
@@ -343,7 +527,8 @@ export const SessionRoutes = lazy(() =>
       "/:sessionID/context/trim",
       describeRoute({
         summary: "Trim shared context",
-        description: "Apply the shared-context retention policy for a session tree and remove acknowledged entries beyond the safety buffer.",
+        description:
+          "Apply the shared-context retention policy for a session tree and remove acknowledged entries beyond the safety buffer.",
         operationId: "session.contextTrim",
         responses: {
           200: {

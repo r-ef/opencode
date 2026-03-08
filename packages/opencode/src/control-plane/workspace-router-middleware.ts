@@ -8,27 +8,25 @@ import { WorkspaceContext } from "./workspace-context"
 // This middleware forwards all non-GET requests if the workspace is a
 // remote. The remote workspace needs to handle session mutations
 async function routeRequest(req: Request) {
-  if (req.method === "GET" || req.method === "HEAD") return
-
-  if (!WorkspaceContext.workspaceID) return
+  const { method, url, signal, headers } = req
+  if (method === "GET" || method === "HEAD" || !WorkspaceContext.workspaceID) return
 
   const workspace = await Workspace.get(WorkspaceContext.workspaceID)
   if (!workspace) {
     return new Response(`Workspace not found: ${WorkspaceContext.workspaceID}`, {
       status: 500,
-      headers: {
-        "content-type": "text/plain; charset=utf-8",
-      },
+      headers: { "content-type": "text/plain; charset=utf-8" },
     })
   }
 
   const adaptor = await getAdaptor(workspace.type)
+  const { pathname, search } = new URL(url)
 
-  return adaptor.fetch(workspace, `${new URL(req.url).pathname}${new URL(req.url).search}`, {
-    method: req.method,
-    body: req.method === "GET" || req.method === "HEAD" ? undefined : await req.arrayBuffer(),
-    signal: req.signal,
-    headers: req.headers,
+  return adaptor.fetch(workspace, `${pathname}${search}`, {
+    method,
+    signal,
+    headers,
+    body: await req.arrayBuffer(),
   })
 }
 

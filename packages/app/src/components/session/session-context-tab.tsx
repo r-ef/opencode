@@ -1,4 +1,4 @@
-import { createMemo, createEffect, on, onCleanup, For, Show } from "solid-js"
+import { createMemo, createEffect, createResource, on, onCleanup, For, Show } from "solid-js"
 import type { JSX } from "solid-js"
 import { useParams } from "@solidjs/router"
 import { useSync } from "@/context/sync"
@@ -14,9 +14,11 @@ import { Markdown } from "@opencode-ai/ui/markdown"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import type { Message, Part, UserMessage } from "@opencode-ai/sdk/v2/client"
 import { useLanguage } from "@/context/language"
+import { useSDK } from "@/context/sdk"
 import { getSessionContextMetrics } from "./session-context-metrics"
 import { estimateSessionContextBreakdown, type SessionContextBreakdownKey } from "./session-context-breakdown"
 import { createSessionContextFormatter } from "./session-context-format"
+import * as workfmt from "./session-work"
 
 const BREAKDOWN_COLOR: Record<SessionContextBreakdownKey, string> = {
   system: "var(--syntax-info)",
@@ -93,6 +95,7 @@ const emptyUserMessages: UserMessage[] = []
 export function SessionContextTab() {
   const params = useParams()
   const sync = useSync()
+  const sdk = useSDK()
   const layout = useLayout()
   const language = useLanguage()
 
@@ -137,10 +140,40 @@ export function SessionContextTab() {
   const metrics = createMemo(() => getSessionContextMetrics(messages(), sync.data.provider.all))
   const ctx = createMemo(() => metrics().context)
   const formatter = createMemo(() => createSessionContextFormatter(language.intl()))
+  const [coord, { refetch: refetchCoord }] = createResource(
+    () => params.id,
+    async (id) => (id ? (await sdk.client.session.coordination({ sessionID: id, limit: 12 })).data ?? [] : []),
+  )
+  const [task, { refetch: refetchTask }] = createResource(
+    () => info()?.rootID,
+    async (id) =>
+      id
+        ? (await sdk.client.task.list({ root_session_id: id, limit: 24 })).data?.filter((item) => item.background) ?? []
+        : [],
+  )
+  const [run, { refetch: refetchRun }] = createResource(
+    () => info()?.rootID,
+    async (id) =>
+      id
+        ? ((await sdk.client.taskBranch.list({ limit: 48 })).data ?? []).filter(
+            (item) => item.rootSessionId === id && item.background,
+          )
+        : [],
+  )
 
   const cost = createMemo(() => {
     return usd().format(metrics().totalCost)
   })
+
+  const openCoord = createMemo(() => (coord() ?? []).filter((item) => item.status === "open" || item.status === "claimed"))
+  const recentCoord = createMemo(() => (coord() ?? []).slice(-6).reverse())
+  const coordSummary = createMemo(() => {
+    const count = openCoord().length
+    if (count > 0) return `${count} open coordination item${count === 1 ? "" : "s"}`
+    if ((coord() ?? []).length > 0) return "Recent agent collaboration available"
+    return "No coordination yet"
+  })
+  const work = createMemo(() => workfmt.items({ task: task() ?? [], branch: run() ?? [] }))
 
   const counts = createMemo(() => {
     const all = messages()
@@ -264,6 +297,26 @@ export function SessionContextTab() {
     ),
   )
 
+  createEffect(() => {
+    const id = params.id
+    if (!id) return
+    const stop = sdk.event.on("session.coordination", (evt) => {
+      if (evt.properties.info.root_session_id !== info()?.rootID) return
+      void refetchCoord()
+    })
+    const stopTask = sdk.event.on("task.updated", (evt) => {
+      if (evt.properties.info.rootSessionID !== info()?.rootID) return
+      void refetchTask()
+    })
+    const stopRun = sdk.event.on("task.branch.updated", (evt) => {
+      if (evt.properties.info.rootSessionId !== info()?.rootID) return
+      void refetchRun()
+    })
+    onCleanup(stop)
+    onCleanup(stopTask)
+    onCleanup(stopRun)
+  })
+
   onCleanup(() => {
     if (frame === undefined) return
     cancelAnimationFrame(frame)
@@ -326,6 +379,64 @@ export function SessionContextTab() {
             </div>
           )}
         </Show>
+
+        <div class="flex flex-col gap-2">
+          <div class="text-12-regular text-text-weak">Background work</div>
+          <div class="text-11-regular text-text-weaker">{workfmt.active(work()).length} active</div>
+          <div class="text-11-regular text-text-weaker">{workfmt.summary(work())}</div>
+          <div class="flex flex-col gap-2">
+            <Show
+              when={work().length > 0}
+              fallback={<div class="border border-border-base rounded-md bg-surface-base px-3 py-2 text-12-regular text-text-weaker">No background work yet</div>}
+            >
+              <For each={work().slice(0, 6)}>
+                {(item) => (
+                  <div class="border border-border-base rounded-md bg-surface-base px-3 py-2 text-12-regular text-text-weak">
+                    <div class="text-text-base">{workfmt.line(item)}</div>
+                  </div>
+                )}
+              </For>
+            </Show>
+          </div>
+        </div>
+
+        <div class="flex flex-col gap-2">
+          <div class="text-12-regular text-text-weak">Agent coordination</div>
+          <div class="text-11-regular text-text-weaker">{openCoord().length} open</div>
+          <div class="text-11-regular text-text-weaker">{coordSummary()}</div>
+          <div class="flex flex-col gap-2">
+            <Show
+              when={recentCoord().length > 0}
+              fallback={<div class="border border-border-base rounded-md bg-surface-base px-3 py-2 text-12-regular text-text-weaker">No coordination yet</div>}
+            >
+              <For each={recentCoord()}>
+                {(item) => (
+                  <div class="border border-border-base rounded-md bg-surface-base px-3 py-2">
+                    <div class="text-11-medium text-text-strong">
+                      {item.kind} · {item.status}
+                      <Show when={item.title}>
+                        {(title) => <span class="text-text-weak"> · {title()}</span>}
+                      </Show>
+                    </div>
+                    <div class="pt-1 text-12-regular text-text-weak break-words">{item.body}</div>
+                    <div class="pt-1 text-11-regular text-text-weaker">
+                      from {item.from_session_id}
+                      <Show when={item.to_session_id}>
+                        {(to) => <span> · to {to()}</span>}
+                      </Show>
+                      <Show when={item.to_agent}>
+                        {(to) => <span> · agent {to()}</span>}
+                      </Show>
+                      <Show when={item.request_id}>
+                        {(req) => <span> · request {req()}</span>}
+                      </Show>
+                    </div>
+                  </div>
+                )}
+              </For>
+            </Show>
+          </div>
+        </div>
 
         <div class="flex flex-col gap-2">
           <div class="text-12-regular text-text-weak">{language.t("context.rawMessages.title")}</div>

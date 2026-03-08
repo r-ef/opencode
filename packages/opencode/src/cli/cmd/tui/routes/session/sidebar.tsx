@@ -13,6 +13,7 @@ import { useKV } from "../../context/kv"
 import { useSDK } from "../../context/sdk"
 import { TodoItem } from "../../component/todo-item"
 import * as coordfmt from "@tui/util/coordination"
+import * as workfmt from "@tui/util/background"
 
 export function Sidebar(props: { sessionID: string; overlay?: boolean }) {
   const sync = useSync()
@@ -69,16 +70,56 @@ export function Sidebar(props: { sessionID: string; overlay?: boolean }) {
     () => props.sessionID,
     async (id) => (id ? (await sdk.client.session.coordination({ sessionID: id, limit: 8 })).data ?? [] : []),
   )
+  const [task, { refetch: refetchTask }] = createResource(
+    () => session()?.rootID,
+    async (id) =>
+      id
+        ? (await sdk.client.task.list({ root_session_id: id, limit: 24 })).data?.filter((item) => item.background) ?? []
+        : [],
+  )
+  const [run, { refetch: refetchRun }] = createResource(
+    () => session()?.rootID,
+    async (id) =>
+      id
+        ? ((await sdk.client.taskBranch.list({ limit: 48 })).data ?? []).filter(
+            (item) => item.rootSessionId === id && item.background,
+          )
+        : [],
+  )
 
   const openCoord = createMemo(() => coordfmt.open(coord() ?? []))
 
   const recentCoord = createMemo(() => coordfmt.recent(coord() ?? []))
+  const work = createMemo(() => [
+    ...(task() ?? []).map((item) => ({
+      kind: "task" as const,
+      title: item.description,
+      status: item.status,
+      time: item.time.updated,
+    })),
+    ...(run() ?? []).map((item) => ({
+      kind: "branch" as const,
+      title: item.description,
+      status: item.status,
+      time: item.updated,
+    })),
+  ])
 
   const stop = sdk.event.on("session.coordination", (evt) => {
     if (evt.properties.info.root_session_id !== session()?.rootID) return
     void refetchCoord()
   })
+  const stopTask = sdk.event.on("task.updated", (evt) => {
+    if (evt.properties.info.rootSessionID !== session()?.rootID) return
+    void refetchTask()
+  })
+  const stopRun = sdk.event.on("task.branch.updated", (evt) => {
+    if (evt.properties.info.rootSessionId !== session()?.rootID) return
+    void refetchRun()
+  })
   onCleanup(stop)
+  onCleanup(stopTask)
+  onCleanup(stopRun)
 
   const hasProviders = createMemo(() =>
     sync.data.provider.some((x) => x.id !== "opencode" || Object.values(x.models).some((y) => y.cost?.input !== 0)),
@@ -123,14 +164,29 @@ export function Sidebar(props: { sessionID: string; overlay?: boolean }) {
               <text fg={theme.textMuted}>{context()?.percentage ?? 0}% used</text>
               <text fg={theme.textMuted}>{cost()} spent</text>
             </box>
-            <Show when={recentCoord().length > 0}>
-              <box>
-                <text fg={theme.text}>
-                  <b>Coordination</b>
-                </text>
-                <Show when={openCoord().length > 0}>
-                  <text fg={theme.textMuted}>{openCoord().length} open</text>
-                </Show>
+            <box>
+              <text fg={theme.text}>
+                <b>Background work</b>
+              </text>
+              <text fg={theme.textMuted}>{workfmt.active(work()).length} active</text>
+              <text fg={theme.textMuted}>{workfmt.summary(work())}</text>
+              <Show when={workfmt.recent(work()).length > 0} fallback={<text fg={theme.textMuted}>No background work yet</text>}>
+                <For each={workfmt.recent(work())}>
+                  {(item) => (
+                    <text fg={theme.textMuted} wrapMode="word">
+                      {workfmt.line(item)}
+                    </text>
+                  )}
+                </For>
+              </Show>
+            </box>
+            <box>
+              <text fg={theme.text}>
+                <b>Coordination</b>
+              </text>
+              <text fg={theme.textMuted}>{openCoord().length} open</text>
+              <text fg={theme.textMuted}>{coordfmt.summary(coord() ?? [])}</text>
+              <Show when={recentCoord().length > 0} fallback={<text fg={theme.textMuted}>No coordination yet</text>}>
                 <For each={recentCoord()}>
                   {(item) => (
                     <box flexDirection="column">
@@ -143,8 +199,8 @@ export function Sidebar(props: { sessionID: string; overlay?: boolean }) {
                     </box>
                   )}
                 </For>
-              </box>
-            </Show>
+              </Show>
+            </box>
             <Show when={mcpEntries().length > 0}>
               <box>
                 <box

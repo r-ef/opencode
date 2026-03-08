@@ -1,6 +1,8 @@
 Watch incremental progress updates from a background subagent task.
 
-Use this for live progress while the task is running. The output also includes shared-context cursor/publication details so you can correlate runtime progress with what sibling sessions can already see.
+Use this only when you explicitly want low-level live progress or debugging detail while the task is running. For normal background work, prefer ambient progress handled by the harness.
+
+The output also includes shared-context cursor/publication details so you can correlate runtime progress with what sibling sessions can already see.
 
 Pass the task_id returned by task, and optionally a cursor from the previous task_watch call to receive only newer updates.
 

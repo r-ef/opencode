@@ -27,7 +27,7 @@ export const BatchTool = Tool.define("batch", async () => {
         })
         .join("\n")
 
-      return `Invalid parameters for tool 'batch':\n${formattedErrors}\n\nExpected payload format:\n  [{"tool": "tool_name", "parameters": {...}}, {...}]`
+      return `Invalid parameters for tool 'batch':\n${formattedErrors}\n\nExpected payload format:\n  {"tool_calls": [{"tool": "tool_name", "parameters": {...}}, {...}]}`
     },
     async execute(params, ctx) {
       const { Session } = await import("../session")

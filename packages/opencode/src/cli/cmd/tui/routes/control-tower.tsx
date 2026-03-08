@@ -1921,12 +1921,13 @@ export function ControlTower() {
                     </Show>
                   </Show>
 
-                  <Show when={(coord() ?? []).length > 0}>
-                    <box height={1} />
-                    <text fg={theme.text}>
-                      <b>Coordination</b>
-                    </text>
-                    <text fg={theme.textMuted}>{openCoord().length} open</text>
+                  <box height={1} />
+                  <text fg={theme.text}>
+                    <b>Coordination</b>
+                  </text>
+                  <text fg={theme.textMuted}>{openCoord().length} open</text>
+                  <text fg={theme.textMuted}>{coordfmt.summary(coord() ?? [])}</text>
+                  <Show when={coordfmt.recent(coord() ?? []).length > 0} fallback={<text fg={theme.textMuted}>No coordination yet</text>}>
                     <For each={coordfmt.recent(coord() ?? [])}>
                       {(item) => (
                         <box flexDirection="column">

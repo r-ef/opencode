@@ -507,19 +507,34 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
             sdk.client.session.todo({ sessionID }),
             sdk.client.session.diff({ sessionID }),
           ])
-          setStore(
-            produce((draft) => {
-              const match = Binary.search(draft.session, sessionID, (s) => s.id)
-              if (match.found) draft.session[match.index] = session.data!
-              if (!match.found) draft.session.splice(match.index, 0, session.data!)
-              draft.todo[sessionID] = todo.data ?? []
-              draft.message[sessionID] = messages.data!.map((x) => x.info)
-              for (const message of messages.data!) {
-                draft.part[message.info.id] = message.parts
+          batch(() => {
+            const info = session.data
+            if (info) {
+              const match = Binary.search(store.session, sessionID, (s) => s.id)
+              if (match.found) setStore("session", match.index, reconcile(info))
+              if (!match.found) {
+                setStore(
+                  "session",
+                  produce((draft) => {
+                    draft.splice(match.index, 0, info)
+                  }),
+                )
               }
-              draft.session_diff[sessionID] = diff.data ?? []
-            }),
-          )
+            }
+            setStore("todo", sessionID, reconcile(todo.data ?? [], { key: "id", merge: true }))
+            setStore(
+              "message",
+              sessionID,
+              reconcile(
+                messages.data!.map((x) => x.info),
+                { key: "id", merge: true },
+              ),
+            )
+            for (const item of messages.data!) {
+              setStore("part", item.info.id, reconcile(item.parts, { key: "id", merge: true }))
+            }
+            setStore("session_diff", sessionID, reconcile(diff.data ?? [], { key: "file", merge: true }))
+          })
           fullSyncedSessions.add(sessionID)
         },
       },

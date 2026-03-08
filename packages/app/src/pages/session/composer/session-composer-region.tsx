@@ -143,19 +143,19 @@ export function SessionComposerRegion(props: {
           "md:max-w-200 md:mx-auto 2xl:max-w-[1000px]": props.centered,
         }}
       >
-        <Show when={props.state.questionRequest()} keyed>
+        <Show when={props.state.questionRequest()}>
           {(request) => (
             <div>
-              <SessionQuestionDock request={request} onSubmit={props.onResponseSubmit} />
+              <SessionQuestionDock request={request()} onSubmit={props.onResponseSubmit} />
             </div>
           )}
         </Show>
 
-        <Show when={props.state.permissionRequest()} keyed>
+        <Show when={props.state.permissionRequest()}>
           {(request) => (
             <div>
               <SessionPermissionDock
-                request={request}
+                request={request()}
                 responding={props.state.permissionResponding()}
                 onDecide={(response) => {
                   props.onResponseSubmit()

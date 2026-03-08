@@ -120,6 +120,14 @@ import type {
   SessionContextStatusResponses,
   SessionContextTrimErrors,
   SessionContextTrimResponses,
+  SessionCoordinationActionableErrors,
+  SessionCoordinationActionableResponses,
+  SessionCoordinationErrors,
+  SessionCoordinationResponses,
+  SessionCoordinationUpdateErrors,
+  SessionCoordinationUpdateResponses,
+  SessionCoordinationWriteErrors,
+  SessionCoordinationWriteResponses,
   SessionCreateErrors,
   SessionCreateResponses,
   SessionDeleteErrors,
@@ -160,6 +168,25 @@ import type {
   SessionUpdateErrors,
   SessionUpdateResponses,
   SubtaskPartInput,
+  TaskBranchApplyErrors,
+  TaskBranchApplyResponses,
+  TaskBranchCancelErrors,
+  TaskBranchCancelResponses,
+  TaskBranchEventsErrors,
+  TaskBranchEventsResponses,
+  TaskBranchGetErrors,
+  TaskBranchGetResponses,
+  TaskBranchListResponses,
+  TaskCancelErrors,
+  TaskCancelResponses,
+  TaskEventsErrors,
+  TaskEventsResponses,
+  TaskGetErrors,
+  TaskGetResponses,
+  TaskListResponses,
+  TaskResumeErrors,
+  TaskResumeResponses,
+  TaskRunStatus,
   TextPartInput,
   ToolIdsErrors,
   ToolIdsResponses,
@@ -1228,7 +1255,7 @@ export class Session2 extends HeyApiClient {
   /**
    * List sessions
    *
-   * Get a list of all OpenCode sessions, sorted by most recently updated.
+   * Get a list of all Selene sessions, sorted by most recently updated.
    */
   public list<ThrowOnError extends boolean = false>(
     parameters?: {
@@ -1588,6 +1615,155 @@ export class Session2 extends HeyApiClient {
   }
 
   /**
+   * List coordination entries
+   *
+   * List durable coordination entries for the root session tree, optionally filtered by cursor, source, target, request, kind, or status.
+   */
+  public coordination<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      after?: number
+      limit?: number
+      source_session_id?: string
+      target_session_id?: string
+      target_agent?: string
+      request_id?: string
+      kind?: "request" | "update" | "answer" | "claim" | "release" | "conflict" | "resolution"
+      status?: "open" | "claimed" | "answered" | "resolved" | "cancelled"
+      include_self?: boolean
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "after" },
+            { in: "query", key: "limit" },
+            { in: "query", key: "source_session_id" },
+            { in: "query", key: "target_session_id" },
+            { in: "query", key: "target_agent" },
+            { in: "query", key: "request_id" },
+            { in: "query", key: "kind" },
+            { in: "query", key: "status" },
+            { in: "query", key: "include_self" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<SessionCoordinationResponses, SessionCoordinationErrors, ThrowOnError>({
+      url: "/session/{sessionID}/coordination",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Publish coordination entry
+   *
+   * Append a durable coordination entry for directed subagent collaboration inside a root session tree.
+   */
+  public coordinationWrite<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      target_session_id?: string
+      target_agent?: string
+      kind?: "request" | "update" | "answer" | "claim" | "release" | "conflict" | "resolution"
+      status?: "open" | "claimed" | "answered" | "resolved" | "cancelled"
+      title?: string
+      body?: string
+      request_id?: string
+      metadata?: {
+        [key: string]: unknown
+      }
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "target_session_id" },
+            { in: "body", key: "target_agent" },
+            { in: "body", key: "kind" },
+            { in: "body", key: "status" },
+            { in: "body", key: "title" },
+            { in: "body", key: "body" },
+            { in: "body", key: "request_id" },
+            { in: "body", key: "metadata" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      SessionCoordinationWriteResponses,
+      SessionCoordinationWriteErrors,
+      ThrowOnError
+    >({
+      url: "/session/{sessionID}/coordination",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Get actionable coordination
+   *
+   * Return unread coordination entries currently actionable for the target session and agent.
+   */
+  public coordinationActionable<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      agent?: string
+      limit?: number
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "agent" },
+            { in: "query", key: "limit" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      SessionCoordinationActionableResponses,
+      SessionCoordinationActionableErrors,
+      ThrowOnError
+    >({
+      url: "/session/{sessionID}/coordination/actionable",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
    * Get session todos
    *
    * Retrieve the todo list associated with a specific session, showing tasks and action items.
@@ -1616,6 +1792,59 @@ export class Session2 extends HeyApiClient {
       url: "/session/{sessionID}/todo",
       ...options,
       ...params,
+    })
+  }
+
+  /**
+   * Update coordination entry
+   *
+   * Update the status or payload of an existing durable coordination entry.
+   */
+  public coordinationUpdate<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      coordinationID: number
+      directory?: string
+      workspace?: string
+      status?: "open" | "claimed" | "answered" | "resolved" | "cancelled"
+      title?: string
+      body?: string
+      metadata?: {
+        [key: string]: unknown
+      }
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "path", key: "coordinationID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "status" },
+            { in: "body", key: "title" },
+            { in: "body", key: "body" },
+            { in: "body", key: "metadata" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).patch<
+      SessionCoordinationUpdateResponses,
+      SessionCoordinationUpdateErrors,
+      ThrowOnError
+    >({
+      url: "/session/{sessionID}/coordination/{coordinationID}",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
     })
   }
 
@@ -2065,6 +2294,7 @@ export class Session2 extends HeyApiClient {
       tools?: {
         [key: string]: boolean
       }
+      permission?: PermissionRuleset
       format?: OutputFormat
       system?: string
       variant?: string
@@ -2085,6 +2315,7 @@ export class Session2 extends HeyApiClient {
             { in: "body", key: "agent" },
             { in: "body", key: "noReply" },
             { in: "body", key: "tools" },
+            { in: "body", key: "permission" },
             { in: "body", key: "format" },
             { in: "body", key: "system" },
             { in: "body", key: "variant" },
@@ -2197,6 +2428,7 @@ export class Session2 extends HeyApiClient {
       tools?: {
         [key: string]: boolean
       }
+      permission?: PermissionRuleset
       format?: OutputFormat
       system?: string
       variant?: string
@@ -2217,6 +2449,7 @@ export class Session2 extends HeyApiClient {
             { in: "body", key: "agent" },
             { in: "body", key: "noReply" },
             { in: "body", key: "tools" },
+            { in: "body", key: "permission" },
             { in: "body", key: "format" },
             { in: "body", key: "system" },
             { in: "body", key: "variant" },
@@ -2604,6 +2837,379 @@ export class Permission extends HeyApiClient {
       url: "/permission",
       ...options,
       ...params,
+    })
+  }
+}
+
+export class TaskBranch extends HeyApiClient {
+  /**
+   * List task branch runs
+   *
+   * List persisted task-branch tournaments for the current project or directory.
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      session_id?: string
+      status?: "running" | "completed" | "error" | "cancelled" | "interrupted"
+      limit?: number
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "session_id" },
+            { in: "query", key: "status" },
+            { in: "query", key: "limit" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<TaskBranchListResponses, unknown, ThrowOnError>({
+      url: "/task/branch",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get task branch run
+   *
+   * Get a persisted task-branch tournament by id.
+   */
+  public get<ThrowOnError extends boolean = false>(
+    parameters: {
+      branchID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "branchID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<TaskBranchGetResponses, TaskBranchGetErrors, ThrowOnError>({
+      url: "/task/branch/{branchID}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * List task branch events
+   *
+   * List persisted lifecycle events for a task-branch tournament.
+   */
+  public events<ThrowOnError extends boolean = false>(
+    parameters: {
+      branchID: string
+      directory?: string
+      workspace?: string
+      cursor?: number
+      limit?: number
+      wait_ms?: number
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "branchID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "cursor" },
+            { in: "query", key: "limit" },
+            { in: "query", key: "wait_ms" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<TaskBranchEventsResponses, TaskBranchEventsErrors, ThrowOnError>({
+      url: "/task/branch/{branchID}/events",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Cancel task branch run
+   *
+   * Cancel a running task-branch tournament and all live child sessions.
+   */
+  public cancel<ThrowOnError extends boolean = false>(
+    parameters: {
+      branchID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "branchID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<TaskBranchCancelResponses, TaskBranchCancelErrors, ThrowOnError>({
+      url: "/task/branch/{branchID}/cancel",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Apply task branch winner
+   *
+   * Apply a completed task-branch winner or named branch back into the current workspace.
+   */
+  public apply<ThrowOnError extends boolean = false>(
+    parameters: {
+      branchID: string
+      directory?: string
+      workspace?: string
+      branch?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "branchID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "branch" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<TaskBranchApplyResponses, TaskBranchApplyErrors, ThrowOnError>({
+      url: "/task/branch/{branchID}/apply",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
+export class Task extends HeyApiClient {
+  /**
+   * List task runs
+   *
+   * List persisted task runs for the current project or directory.
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      parent_session_id?: string
+      root_session_id?: string
+      status?: TaskRunStatus
+      limit?: number
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "parent_session_id" },
+            { in: "query", key: "root_session_id" },
+            { in: "query", key: "status" },
+            { in: "query", key: "limit" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<TaskListResponses, unknown, ThrowOnError>({
+      url: "/task",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get task run
+   *
+   * Get a persisted task run by subagent session id.
+   */
+  public get<ThrowOnError extends boolean = false>(
+    parameters: {
+      taskID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "taskID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<TaskGetResponses, TaskGetErrors, ThrowOnError>({
+      url: "/task/{taskID}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * List task events
+   *
+   * List persisted lifecycle events for a task run.
+   */
+  public events<ThrowOnError extends boolean = false>(
+    parameters: {
+      taskID: string
+      directory?: string
+      workspace?: string
+      cursor?: number
+      limit?: number
+      wait_ms?: number
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "taskID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "cursor" },
+            { in: "query", key: "limit" },
+            { in: "query", key: "wait_ms" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<TaskEventsResponses, TaskEventsErrors, ThrowOnError>({
+      url: "/task/{taskID}/events",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Cancel task run
+   *
+   * Cancel a running task and mark it as cancelled.
+   */
+  public cancel<ThrowOnError extends boolean = false>(
+    parameters: {
+      taskID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "taskID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<TaskCancelResponses, TaskCancelErrors, ThrowOnError>({
+      url: "/task/{taskID}/cancel",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Resume task run
+   *
+   * Resume a persisted task session directly via the backend task domain.
+   */
+  public resume<ThrowOnError extends boolean = false>(
+    parameters: {
+      taskID: string
+      directory?: string
+      workspace?: string
+      parent_session_id?: string
+      prompt?: string
+      parts?: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput>
+      background?: boolean
+      model?: {
+        providerID: string
+        modelID: string
+      }
+      variant?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "taskID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "parent_session_id" },
+            { in: "body", key: "prompt" },
+            { in: "body", key: "parts" },
+            { in: "body", key: "background" },
+            { in: "body", key: "model" },
+            { in: "body", key: "variant" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<TaskResumeResponses, TaskResumeErrors, ThrowOnError>({
+      url: "/task/{taskID}/resume",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
     })
   }
 }
@@ -3802,7 +4408,7 @@ export class Instance extends HeyApiClient {
   /**
    * Dispose instance
    *
-   * Clean up and dispose the current OpenCode instance, releasing all resources.
+   * Clean up and dispose the current Selene instance, releasing all resources.
    */
   public dispose<ThrowOnError extends boolean = false>(
     parameters?: {
@@ -4190,6 +4796,16 @@ export class OpencodeClient extends HeyApiClient {
   private _permission?: Permission
   get permission(): Permission {
     return (this._permission ??= new Permission({ client: this.client }))
+  }
+
+  private _taskBranch?: TaskBranch
+  get taskBranch(): TaskBranch {
+    return (this._taskBranch ??= new TaskBranch({ client: this.client }))
+  }
+
+  private _task?: Task
+  get task(): Task {
+    return (this._task ??= new Task({ client: this.client }))
   }
 
   private _question?: Question

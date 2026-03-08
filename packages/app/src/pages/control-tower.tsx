@@ -11,6 +11,8 @@ import type {
   QuestionRequest,
   Session,
   SessionStatus,
+  TaskEvent,
+  TaskBranchRun,
   Todo,
   ToolPart,
 } from "@opencode-ai/sdk/v2/client"
@@ -26,7 +28,7 @@ import { useGlobalSync } from "@/context/global-sync"
 import { useLayout } from "@/context/layout"
 import { useLocal } from "@/context/local"
 import { decode64 } from "@/utils/base64"
-import { applyState, famNote as familyNote, runNote as taskNote } from "./control-tower-state"
+import { famNote as familyNote, runEvent, runNote as taskNote, runPatch } from "./control-tower-state"
 
 type Row = {
   info: Session
@@ -79,6 +81,7 @@ type Run = {
     name: string
     sessionID: string
     status: SessionStatus
+    state: TaskBranchRun["branches"][number]["status"]
     row?: Row
   }[]
   win?: {
@@ -86,7 +89,8 @@ type Run = {
     sessionId?: string
   } | null
   background: boolean
-  state: "running" | "done" | "error"
+  state: TaskBranchRun["status"]
+  applied?: TaskBranchRun["applied"]
   time: number
 }
 
@@ -97,6 +101,21 @@ type Snap = {
   todo?: Todo[]
   loading?: boolean
   err?: string
+}
+
+type Coord = {
+  id: number
+  root_session_id: string
+  from_session_id: string
+  to_session_id?: string
+  to_agent?: string
+  request_id?: string
+  kind: string
+  status: string
+  title?: string
+  body: string
+  time_created: number
+  time_updated: number
 }
 
 const idle = { type: "idle" as const }
@@ -188,9 +207,16 @@ const lastAssistant = (msg: Message[]) => {
 
 const askTone = (item: Ask) => (item.kind === "permission" ? "retry" : "wait")
 
-const runTone = (run: Run) => (run.state === "running" ? "busy" : run.state === "error" ? "retry" : "base")
+const runTone = (run: Run) =>
+  run.state === "running"
+    ? "busy"
+    : run.state === "error" || run.state === "interrupted"
+      ? "retry"
+      : run.state === "cancelled"
+        ? "idle"
+        : "base"
 
-const done = (run: Run) => run.rows.filter((item) => item.status.type === "idle").length
+const done = (run: Run) => run.rows.filter((item) => item.state !== "running" && item.state !== "pending").length
 
 function Pill(props: {
   tone: "busy" | "retry" | "wait" | "idle" | "base"
@@ -308,10 +334,9 @@ export default function ControlTower() {
     if (!providerID || !modelID) return
     return { providerID, modelID }
   })
-  const variant = createMemo(() => local.model.variant.current())
-
   const [data, setData] = createStore({
     list: {} as Record<string, Session[]>,
+    run: {} as Record<string, TaskBranchRun[]>,
     err: {} as Record<string, string | undefined>,
     at: 0,
     loading: false,
@@ -322,9 +347,23 @@ export default function ControlTower() {
   const [act, setAct] = createStore({} as Record<string, boolean>)
   const [op, setOp] = createStore({} as Record<string, boolean>)
   const [snap, setSnap] = createStore({} as Record<string, Snap>)
+  const [evt, setEvt] = createStore({} as Record<string, { cursor: number; rows: TaskEvent[] }>)
+  const [coord, setCoord] = createStore({} as Record<string, Coord[]>)
 
   let job: Promise<void> | undefined
   const jobs = new Map<string, Promise<void>>()
+  const feed = new Map<string, { stop: boolean }>()
+
+  const upsertRun = (dir: string, info: TaskBranchRun) => {
+    setData("run", dir, (list) => {
+      const next = (list ?? []).filter((item) => item.id !== info.id)
+      next.push(info)
+      next.sort((a, b) => b.updated - a.updated || b.id.localeCompare(a.id))
+      return next
+    })
+    setData("at", Date.now())
+    setData("err", dir, undefined)
+  }
 
   const load = async () => {
     if (job) return job
@@ -337,22 +376,30 @@ export default function ControlTower() {
     setData("loading", true)
     job = Promise.all(
       list.map(async (dir) => {
-        const result = await globalSDK.client.session
-          .list({
-            directory: dir,
-            start: Date.now() - days,
-            limit: 300,
-          })
-          .then((x) => x.data ?? [])
-          .then((x) => x.filter((item) => !!item?.id).filter((item) => item.time.archived === undefined))
-          .then((x) => x.toSorted((a, b) => b.time.updated - a.time.updated || b.id.localeCompare(a.id)))
-          .catch((err) => {
-            setData("err", dir, text(err))
-            return undefined
-          })
+        const [sessions, runs] = await Promise.all([
+          globalSDK.client.session
+            .list({
+              directory: dir,
+              start: Date.now() - days,
+              limit: 300,
+            })
+            .then((x) => x.data ?? [])
+            .then((x) => x.filter((item) => !!item?.id).filter((item) => item.time.archived === undefined))
+            .then((x) => x.toSorted((a, b) => b.time.updated - a.time.updated || b.id.localeCompare(a.id))),
+          globalSDK.client.taskBranch
+            .list({
+              directory: dir,
+              limit: 100,
+            })
+            .then((x) => x.data ?? []),
+        ]).catch((err) => {
+          setData("err", dir, text(err))
+          return [] as const
+        })
 
-        if (!result) return
-        setData("list", dir, result)
+        if (!sessions || !runs) return
+        setData("list", dir, sessions)
+        setData("run", dir, runs)
         setData("err", dir, undefined)
       }),
     )
@@ -372,8 +419,19 @@ export default function ControlTower() {
     void load()
     const timer = setInterval(() => {
       void load()
-    }, 5_000)
+    }, 30_000)
     onCleanup(() => clearInterval(timer))
+  })
+
+  createEffect(() => {
+    refs().map((item) => item.dir).join("\n")
+    const allow = new Set(refs().map((item) => item.dir))
+    const stop = globalSDK.event.listen((e) => {
+      if (e.details?.type !== "task.branch.updated") return
+      if (!allow.has(e.name)) return
+      upsertRun(e.name, e.details.properties.info)
+    })
+    onCleanup(stop)
   })
 
   const rows = createMemo(() => {
@@ -533,14 +591,14 @@ export default function ControlTower() {
     return run.rows[0]?.row ?? run.root
   }
 
-  const rootTools = (row: Row) =>
-    Object.values(snap[key(row)]?.part ?? {})
-      .flat()
-      .filter((item): item is ToolPart => item.type === "tool")
-
-  const apply = (run: Run) => applyState(rootTools(run.root), run.id)
+  const apply = (run: Run) => {
+    if (run.applied?.status === "running") return "running" as const
+    if (run.applied?.status === "completed") return "done" as const
+    if (run.applied?.status === "error") return "error" as const
+    return "idle" as const
+  }
   const famHint = (fam: Fam) => familyNote(fam.root.info, !!model())
-  const runHint = (run: Run) => taskNote(run, { model: !!model(), apply: apply(run) })
+  const runHint = (run: Run) => taskNote(run, { apply: apply(run) })
 
   const stopRow = async (row: Row) => {
     if (row.status.type === "idle") return
@@ -649,32 +707,31 @@ export default function ControlTower() {
   }
 
   const applyRun = (run: Run) => {
-    const cfg = model()
-    if (!cfg) {
-      showToast({
-        variant: "error",
-        title: "Connect a provider to apply the winner",
-      })
-      return
-    }
     return opOn(
       `apply:${run.id}`,
       () =>
         globalSDK
           .createClient({ directory: run.root.dir, throwOnError: true })
-          .session.promptAsync({
-            sessionID: run.root.info.id,
-            model: cfg,
-            variant: variant(),
-            parts: [
-              {
-                type: "text",
-                text: `Use the task_branch_apply tool to apply the winning result from branch run ${run.id} back into this session workspace. If apply is blocked, explain the reason briefly.`,
-              },
-            ],
+          .taskBranch.apply({
+            branchID: run.id,
+            branch: run.win?.sessionId,
           })
           .then(() => undefined),
-      "Applying winner in root session",
+      "Applied winner",
+    )
+  }
+
+  const cancelRun = (run: Run) => {
+    return opOn(
+      `cancel:${run.id}`,
+      () =>
+        globalSDK
+          .createClient({ directory: run.root.dir, throwOnError: true })
+          .taskBranch.cancel({
+            branchID: run.id,
+          })
+          .then(() => undefined),
+      "Cancelled branch run",
     )
   }
 
@@ -768,9 +825,43 @@ export default function ControlTower() {
   })
 
   const current = createMemo(() => by().get(pick() ?? "") ?? live()[0] ?? waitRows()[0] ?? list()[0]?.root)
+  const currentRoot = createMemo(() => {
+    const row = current()
+    if (!row) return
+    return by().get(row.info.rootID) ?? row
+  })
 
   createEffect(() => {
     void need(current(), true)
+  })
+
+  const loadCoord = async (row?: Row) => {
+    if (!row) return
+    const key = `${row.dir}:${row.info.rootID}`
+    const result = await globalSDK
+      .createClient({ directory: row.dir })
+      .session.coordination({
+        sessionID: row.info.rootID,
+        limit: 12,
+      })
+      .catch(() => undefined)
+    setCoord(key, result?.data ?? [])
+  }
+
+  createEffect(() => {
+    void loadCoord(currentRoot())
+  })
+
+  createEffect(() => {
+    const stop = globalSDK.event.listen((e) => {
+      if (e.details?.type !== "session.coordination") return
+      const row = currentRoot()
+      if (!row) return
+      if (e.name !== row.dir) return
+      if (e.details.properties.info.root_session_id !== row.info.rootID) return
+      void loadCoord(row)
+    })
+    onCleanup(stop)
   })
 
   const info = createMemo(() => {
@@ -801,61 +892,122 @@ export default function ControlTower() {
     }
   })
   const ctx = createMemo(() => getSessionContextMetrics(msg(), globalSync.data.provider.all).context)
+  const currentCoord = createMemo(() => {
+    const row = currentRoot()
+    if (!row) return []
+    return coord[`${row.dir}:${row.info.rootID}`] ?? []
+  })
+  const openCoord = createMemo(() => currentCoord().filter((item) => item.status === "open" || item.status === "claimed"))
+  const coordSummary = createMemo(() => {
+    const count = openCoord().length
+    if (count > 0) return `${count} open coordination item${count === 1 ? "" : "s"}`
+    if (currentCoord().length > 0) return "Recent agent collaboration available"
+    return "No coordination yet"
+  })
 
   const runs = createMemo(() => {
-    const seen = new Set<string>()
     const out: Run[] = []
 
-    for (const fam of fams().slice(0, 12)) {
-      const ref = snap[key(fam.root)]
-      const msg = ref?.msg ?? []
-      const part = ref?.part ?? {}
-      for (const entry of msg) {
-        for (const item of part[entry.id] ?? []) {
-          if (item.type !== "tool" || item.tool !== "task_branch") continue
-          if (item.state.status === "pending") continue
-          const meta = (item.state.status === "running" || item.state.status === "completed" || item.state.status === "error"
-            ? item.state.metadata
-            : undefined) as
-            | {
-                branchId?: string
-                background?: boolean
-                branches?: { name?: string; sessionId?: string }[]
-                winner?: { name?: string; sessionId?: string } | null
-              }
-            | undefined
-          const id = meta?.branchId ?? item.id
-          if (seen.has(id)) continue
-          seen.add(id)
-          const rows = (meta?.branches ?? []).flatMap((entry) => {
-            if (!entry.sessionId) return []
-            return [
-              {
-                name: entry.name ?? entry.sessionId,
-                sessionID: entry.sessionId,
-                status: by().get(entry.sessionId)?.status ?? idle,
-                row: by().get(entry.sessionId),
-              },
-            ]
-          })
-          out.push({
-            id,
-            root: fam.root,
-            title:
-              (("title" in item.state && typeof item.state.title === "string" && item.state.title) ||
-                (typeof item.state.input.description === "string" && item.state.input.description) ||
-                "Branch run"),
-            rows,
-            win: meta?.winner,
-            background: meta?.background === true,
-            state: item.state.status === "error" ? "error" : item.state.status === "completed" ? "done" : "running",
-            time: Math.max(entry.time.created, ...rows.map((row) => row.row?.info.time.updated ?? 0)),
-          })
-        }
-      }
+    for (const item of Object.values(data.run).flat()) {
+      const root = by().get(item.sessionId)
+      if (!root) continue
+      const rows = item.branches.map((entry) => ({
+        name: entry.name,
+        sessionID: entry.sessionId,
+        status: by().get(entry.sessionId)?.status ?? idle,
+        state: entry.status,
+        row: by().get(entry.sessionId),
+      }))
+      out.push({
+        id: item.id,
+        root,
+        title: item.description,
+        rows,
+        win: item.winner,
+        background: item.background,
+        state: item.status,
+        applied: item.applied,
+        time: item.updated,
+      })
     }
 
     return out.toSorted((a, b) => b.time - a.time || b.id.localeCompare(a.id))
+  })
+
+  const pushEvt = (id: string, rows: TaskEvent[]) => {
+    if (rows.length === 0) return
+    setEvt(id, (cur) => {
+      const prev = cur?.rows ?? []
+      const seen = new Set(prev.map((item) => item.id))
+      const next = [...prev, ...rows.filter((item) => !seen.has(item.id))].slice(-40)
+      return {
+        cursor: rows.at(-1)?.id ?? cur?.cursor ?? 0,
+        rows: next,
+      }
+    })
+  }
+
+  const patchRun = (dir: string, id: string, rows: TaskEvent[]) => {
+    if (rows.length === 0) return
+    setData("run", dir, (list) =>
+      (list ?? []).map((item) => {
+        if (item.id !== id) return item
+        return rows.reduce((acc, row) => runPatch(acc, row), item)
+      }),
+    )
+  }
+
+  const activity = (run: Run) =>
+    (evt[run.id]?.rows ?? [])
+      .map((item) => runEvent(item))
+      .filter((item): item is string => Boolean(item))
+      .slice(-3)
+      .reverse()
+
+  onCleanup(() => {
+    for (const item of feed.values()) item.stop = true
+    feed.clear()
+  })
+
+  createEffect(() => {
+    const next = runs()
+      .slice(0, 8)
+      .map((run) => ({
+        id: run.id,
+        dir: run.root.dir,
+      }))
+    const keep = new Set(next.map((item) => item.id))
+
+    for (const [id, item] of feed) {
+      if (keep.has(id)) continue
+      item.stop = true
+      feed.delete(id)
+    }
+
+    next.forEach((run) => {
+      if (feed.has(run.id)) return
+      const item = { stop: false }
+      feed.set(run.id, item)
+      const loop = async (cursor = evt[run.id]?.cursor ?? 0) => {
+        while (!item.stop) {
+          const result = await globalSDK
+            .createClient({ directory: run.dir })
+            .taskBranch.events({
+              branchID: run.id,
+              cursor,
+              limit: 40,
+              wait_ms: 30000,
+            })
+            .catch(() => undefined)
+          if (item.stop) return
+          const rows = result?.data ?? []
+          pushEvt(run.id, rows)
+          patchRun(run.dir, run.id, rows)
+          cursor = rows.at(-1)?.id ?? cursor
+        }
+      }
+      void loop()
+    })
   })
 
   const tabs = [
@@ -1264,6 +1416,43 @@ export default function ControlTower() {
                         </div>
                       </Show>
 
+                      <div class="rounded-2xl border border-border-weak-base bg-background-stronger p-3">
+                        <div class="flex items-center justify-between gap-3">
+                          <div class="text-[11px] font-medium uppercase tracking-[0.16em] text-text-weaker">Coordination</div>
+                          <div class="text-12-regular text-text-weak">{openCoord().length} open</div>
+                        </div>
+                        <div class="mt-1 text-11-regular text-text-weaker">{coordSummary()}</div>
+                        <div class="mt-2 flex flex-col gap-2">
+                          <Show
+                            when={currentCoord().length > 0}
+                            fallback={<div class="rounded-xl border border-border-weak-base bg-background-base px-3 py-2 text-12-regular text-text-weaker">No coordination yet</div>}
+                          >
+                            <For each={currentCoord().slice(-5).reverse()}>
+                              {(item) => (
+                                <div class="rounded-xl border border-border-weak-base bg-background-base px-3 py-2 text-12-regular text-text-weak">
+                                  <div class="text-text-base">
+                                    {item.kind} · {item.status}
+                                    <Show when={item.title}>
+                                      {(title) => <span class="text-text-weak"> · {title()}</span>}
+                                    </Show>
+                                  </div>
+                                  <div class="pt-1 break-words">{item.body}</div>
+                                  <div class="pt-1 text-11-regular text-text-weaker">
+                                    from {item.from_session_id}
+                                    <Show when={item.to_session_id}>
+                                      {(to) => <span> · to {to()}</span>}
+                                    </Show>
+                                    <Show when={item.to_agent}>
+                                      {(to) => <span> · agent {to()}</span>}
+                                    </Show>
+                                  </div>
+                                </div>
+                              )}
+                            </For>
+                          </Show>
+                        </div>
+                      </div>
+
                       <Show when={toolList().length > 0}>
                         <div class="rounded-2xl border border-border-weak-base bg-background-stronger p-3">
                           <div class="text-[11px] font-medium uppercase tracking-[0.16em] text-text-weaker">Recent tools</div>
@@ -1535,6 +1724,17 @@ export default function ControlTower() {
                             </For>
                           </div>
 
+                          <Show when={activity(run).length > 0}>
+                            <div class="mt-3 rounded-xl border border-border-weak-base bg-background-base px-3 py-3">
+                              <div class="text-[11px] uppercase tracking-[0.16em] text-text-weaker">Recent activity</div>
+                              <div class="mt-2 flex flex-col gap-1.5">
+                                <For each={activity(run)}>
+                                  {(item) => <div class="text-12-regular text-text-weak">{item}</div>}
+                                </For>
+                              </div>
+                            </div>
+                          </Show>
+
                           <div class="pt-3 flex flex-col gap-2">
                             <div class="flex flex-wrap gap-2">
                               <Button variant="ghost" size="small" class="h-8 px-3" onClick={() => open(run.root)}>
@@ -1585,10 +1785,27 @@ export default function ControlTower() {
                                 size="small"
                                 class="h-8 px-3"
                                 title={runHint(run)}
-                                disabled={!run.win?.sessionId || !model() || apply(run) === "running" || op[`apply:${run.id}`]}
+                                disabled={run.state !== "running" || op[`cancel:${run.id}`]}
+                                onClick={() => void cancelRun(run)}
+                              >
+                                <Show when={op[`cancel:${run.id}`]} fallback={<>Cancel run</>}>
+                                  <Spinner class="size-3.5" />
+                                </Show>
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="small"
+                                class="h-8 px-3"
+                                title={runHint(run)}
+                                disabled={!run.win?.sessionId || apply(run) === "running" || apply(run) === "done" || op[`apply:${run.id}`]}
                                 onClick={() => void applyRun(run)}
                               >
-                                <Show when={op[`apply:${run.id}`]} fallback={<>Apply winner</>}>
+                                <Show
+                                  when={op[`apply:${run.id}`]}
+                                  fallback={
+                                    <>{apply(run) === "done" ? "Applied" : apply(run) === "error" ? "Retry apply" : "Apply winner"}</>
+                                  }
+                                >
                                   <Spinner class="size-3.5" />
                                 </Show>
                               </Button>

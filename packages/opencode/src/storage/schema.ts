@@ -7,6 +7,8 @@ export {
   PermissionTable,
   SessionContextTable,
   SessionContextStateTable,
+  SessionCoordinationTable,
+  SessionCoordinationStateTable,
 } from "../session/session.sql"
 export { SessionShareTable } from "../share/share.sql"
 export { ProjectTable } from "../project/project.sql"

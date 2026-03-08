@@ -5,7 +5,7 @@ import { useFileComponent } from "../context/file"
 
 import { Binary } from "@opencode-ai/util/binary"
 import { getDirectory, getFilename } from "@opencode-ai/util/path"
-import { createEffect, createMemo, createSignal, For, on, ParentProps, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, For, on, onCleanup, ParentProps, Show } from "solid-js"
 import { Dynamic } from "solid-js/web"
 import { AssistantParts, Message, Part, PART_MAPPING } from "./message-part"
 import { Card } from "./card"
@@ -22,6 +22,10 @@ import { useI18n } from "../context/i18n"
 
 function record(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value)
+}
+
+function isMessage(value: unknown): value is MessageType {
+  return record(value) && typeof value.id === "string" && typeof value.role === "string" && record(value.time)
 }
 
 function unwrap(message: string) {
@@ -77,6 +81,10 @@ function same<T>(a: readonly T[], b: readonly T[]) {
   if (a === b) return true
   if (a.length !== b.length) return false
   return a.every((x, i) => x === b[i])
+}
+
+function cancel(frame?: number) {
+  if (frame !== undefined) cancelAnimationFrame(frame)
 }
 
 function list<T>(value: T[] | undefined | null, fallback: T[]) {
@@ -164,67 +172,60 @@ export function SessionTurn(
   const emptyAssistant: AssistantMessage[] = []
   const emptyDiffs: FileDiff[] = []
   const idle = { type: "idle" as const }
+  const emptyAssistantState = {
+    interrupted: false,
+    error: undefined as AssistantMessage["error"] | undefined,
+    copy: undefined as string | undefined,
+    end: undefined as number | undefined,
+    visible: 0,
+    tail: undefined as "text" | "other" | undefined,
+    title: undefined as string | undefined,
+  }
 
-  const allMessages = createMemo(() => list(data.store.message?.[props.sessionID], emptyMessages))
+  const allMessages = createMemo(() => list(data.store.message?.[props.sessionID], emptyMessages).filter(isMessage))
 
-  const messageIndex = createMemo(() => {
-    const messages = allMessages() ?? emptyMessages
-    const result = Binary.search(messages, props.messageID, (m) => m.id)
-
-    const index = result.found ? result.index : messages.findIndex((m) => m.id === props.messageID)
-    if (index < 0) return -1
-
-    const msg = messages[index]
-    if (!msg || msg.role !== "user") return -1
-
-    return index
-  })
-
-  const message = createMemo(() => {
-    const index = messageIndex()
-    if (index < 0) return undefined
-
-    const messages = allMessages() ?? emptyMessages
-    const msg = messages[index]
-    if (!msg || msg.role !== "user") return undefined
-
-    return msg
-  })
-
-  const pending = createMemo(() => {
-    if (typeof props.active === "boolean" && typeof props.queued === "boolean") return
-    const messages = allMessages() ?? emptyMessages
-    return messages.findLast(
-      (item): item is AssistantMessage => item.role === "assistant" && typeof item.time.completed !== "number",
-    )
-  })
-
-  const pendingUser = createMemo(() => {
-    const item = pending()
-    if (!item?.parentID) return
-    const messages = allMessages() ?? emptyMessages
-    const result = Binary.search(messages, item.parentID, (m) => m.id)
-    const msg = result.found ? messages[result.index] : messages.find((m) => m.id === item.parentID)
+  const turn = createMemo(() => {
+    const list = allMessages()
+    if (!Array.isArray(list) || list.length === 0) return
+    const hit = Binary.search(list, props.messageID, (msg) => msg.id)
+    if (!hit.found) return
+    const msg = list[hit.index]
     if (!msg || msg.role !== "user") return
-    return msg
+    return { index: hit.index, message: msg }
+  })
+
+  const message = createMemo(() => turn()?.message)
+
+  const pendingState = createMemo(() => {
+    if (typeof props.active === "boolean" && typeof props.queued === "boolean") return {}
+    const list = allMessages()
+    if (!Array.isArray(list) || list.length === 0) return {}
+    for (let i = list.length - 1; i >= 0; i--) {
+      const item = list[i]
+      if (item.role !== "assistant" || typeof item.time.completed === "number") continue
+      if (!item.parentID) return { pending: item }
+      const hit = Binary.search(list, item.parentID, (msg) => msg.id)
+      const msg = hit.found ? list[hit.index] : undefined
+      if (!msg || msg.role !== "user") return { pending: item }
+      return { pending: item, user: msg }
+    }
+    return {}
   })
 
   const active = createMemo(() => {
     if (typeof props.active === "boolean") return props.active
     const msg = message()
-    const parent = pendingUser()
-    if (!msg || !parent) return false
-    return parent.id === msg.id
+    const user = pendingState().user
+    if (!msg || !user) return false
+    return user.id === msg.id
   })
 
   const queued = createMemo(() => {
     if (typeof props.queued === "boolean") return props.queued
     const id = message()?.id
-    if (!id) return false
-    if (!pendingUser()) return false
-    const item = pending()
-    if (!item) return false
-    return id > item.id
+    const pending = pendingState().pending
+    if (!id || !pending || !pendingState().user) return false
+    return id > pending.id
   })
 
   const parts = createMemo(() => {
@@ -252,6 +253,7 @@ export function SessionTurn(
   const edited = createMemo(() => diffs().length)
   const [open, setOpen] = createSignal(false)
   const [expanded, setExpanded] = createSignal<string[]>([])
+  const openSet = createMemo(() => new Set(expanded()))
 
   createEffect(
     on(
@@ -265,53 +267,73 @@ export function SessionTurn(
 
   const assistantMessages = createMemo(
     () => {
-      const msg = message()
-      if (!msg) return emptyAssistant
+      const row = turn()
+      if (!row) return emptyAssistant
 
-      const messages = allMessages() ?? emptyMessages
-      const index = messageIndex()
-      if (index < 0) return emptyAssistant
-
-      const result: AssistantMessage[] = []
-      for (let i = index + 1; i < messages.length; i++) {
-        const item = messages[i]
-        if (!item) continue
+      const list = allMessages()
+      const out: AssistantMessage[] = []
+      for (let i = row.index + 1; i < list.length; i++) {
+        const item = list[i]
         if (item.role === "user") break
-        if (item.role === "assistant" && item.parentID === msg.id) result.push(item as AssistantMessage)
+        if (item.role === "assistant" && item.parentID === row.message.id) out.push(item as AssistantMessage)
       }
-      return result
+      return out
     },
     emptyAssistant,
     { equals: same },
   )
 
-  const interrupted = createMemo(() => assistantMessages().some((m) => m.error?.name === "MessageAbortedError"))
-  const error = createMemo(
-    () => assistantMessages().find((m) => m.error && m.error.name !== "MessageAbortedError")?.error,
-  )
-  const showAssistantCopyPartID = createMemo(() => {
-    const messages = assistantMessages()
+  const showReasoningSummaries = createMemo(() => props.showReasoningSummaries ?? true)
 
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const message = messages[i]
-      if (!message) continue
+  const assistantState = createMemo(() => {
+    let interrupted = false
+    let err = undefined as AssistantMessage["error"] | undefined
+    let copy = undefined as string | undefined
+    let end = undefined as number | undefined
+    let visible = 0
+    let tail = undefined as "text" | "other" | undefined
+    let title = undefined as string | undefined
 
-      const parts = list(data.store.part?.[message.id], emptyParts)
-      for (let j = parts.length - 1; j >= 0; j--) {
-        const part = parts[j]
-        if (!part || part.type !== "text" || !part.text?.trim()) continue
-        return part.id
+    for (const msg of assistantMessages()) {
+      if (msg.error?.name === "MessageAbortedError") interrupted = true
+      if (!err && msg.error && msg.error.name !== "MessageAbortedError") err = msg.error
+      const done = msg.time.completed
+      if (typeof done === "number") end = end === undefined ? done : Math.max(end, done)
+
+      const rows = list(data.store.part?.[msg.id], emptyParts)
+      for (let i = rows.length - 1; i >= 0; i--) {
+        const part = rows[i]
+        if (!copy && part.type === "text" && part.text?.trim()) copy = part.id
+      }
+      for (const part of rows) {
+        if (partState(part, showReasoningSummaries()) !== "visible") continue
+        visible += 1
+        tail = part.type === "text" ? "text" : "other"
+        if (part.type !== "reasoning" || !part.text) continue
+        const next = heading(part.text)
+        if (next) title = next
       }
     }
 
-    return undefined
-  })
+    return {
+      interrupted,
+      error: err,
+      copy,
+      end,
+      visible,
+      tail,
+      title,
+    }
+  }, emptyAssistantState)
+  const assistant = createMemo(() => assistantState() ?? emptyAssistantState)
   const errorText = createMemo(() => {
-    const msg = error()?.data?.message
+    const err = assistant().error
+    const msg = err?.data?.message
     if (typeof msg === "string") return unwrap(msg)
     if (msg === undefined || msg === null) return ""
     return unwrap(String(msg))
   })
+  const assistantError = createMemo(() => assistant().error)
 
   const status = createMemo(() => {
     if (props.status !== undefined) return props.status
@@ -319,56 +341,23 @@ export function SessionTurn(
     return data.store.session_status[props.sessionID] ?? idle
   })
   const working = createMemo(() => status().type !== "idle" && active())
-  const showReasoningSummaries = createMemo(() => props.showReasoningSummaries ?? true)
 
   const assistantCopyPartID = createMemo(() => {
     if (working()) return null
-    return showAssistantCopyPartID() ?? null
+    return assistant().copy ?? null
   })
   const turnDurationMs = createMemo(() => {
     const start = message()?.time.created
-    if (typeof start !== "number") return undefined
-
-    const end = assistantMessages().reduce<number | undefined>((max, item) => {
-      const completed = item.time.completed
-      if (typeof completed !== "number") return max
-      if (max === undefined) return completed
-      return Math.max(max, completed)
-    }, undefined)
-
-    if (typeof end !== "number") return undefined
+    const end = assistant().end
+    if (typeof start !== "number" || typeof end !== "number") return undefined
     if (end < start) return undefined
     return end - start
   })
-  const assistantVisible = createMemo(() =>
-    assistantMessages().reduce((count, message) => {
-      const parts = list(data.store.part?.[message.id], emptyParts)
-      return count + parts.filter((part) => partState(part, showReasoningSummaries()) === "visible").length
-    }, 0),
-  )
-  const assistantTailVisible = createMemo(() =>
-    assistantMessages()
-      .flatMap((message) => list(data.store.part?.[message.id], emptyParts))
-      .flatMap((part) => {
-        if (partState(part, showReasoningSummaries()) !== "visible") return []
-        if (part.type === "text") return ["text" as const]
-        return ["other" as const]
-      })
-      .at(-1),
-  )
-  const reasoningHeading = createMemo(() =>
-    assistantMessages()
-      .flatMap((message) => list(data.store.part?.[message.id], emptyParts))
-      .filter((part): part is PartType & { type: "reasoning"; text: string } => part.type === "reasoning")
-      .map((part) => heading(part.text))
-      .filter((text): text is string => !!text)
-      .at(-1),
-  )
   const showThinking = createMemo(() => {
-    if (!working() || !!error()) return false
+    if (!working() || !!assistantError()) return false
     if (queued()) return false
     if (status().type === "retry") return false
-    if (showReasoningSummaries()) return assistantVisible() === 0
+    if (showReasoningSummaries()) return assistant().visible === 0
     return true
   })
 
@@ -396,7 +385,7 @@ export function SessionTurn(
                 class={props.classes?.container}
               >
                 <div data-slot="session-turn-message-content" aria-live="off">
-                  <Message message={msg()} parts={parts()} interrupted={interrupted()} queued={queued()} />
+                  <Message message={msg()} parts={parts()} interrupted={assistant().interrupted} queued={queued()} />
                 </div>
                 <Show when={compaction()}>
                   {(part) => (
@@ -423,7 +412,7 @@ export function SessionTurn(
                     <TextShimmer text={i18n.t("ui.sessionTurn.status.thinking")} />
                     <Show when={!showReasoningSummaries()}>
                       <TextReveal
-                        text={reasoningHeading()}
+                        text={assistant().title}
                         class="session-turn-thinking-heading"
                         travel={25}
                         duration={700}
@@ -462,19 +451,23 @@ export function SessionTurn(
                             >
                               <For each={diffs()}>
                                 {(diff) => {
-                                  const active = createMemo(() => expanded().includes(diff.file))
+                                  const active = createMemo(() => openSet().has(diff.file))
                                   const [visible, setVisible] = createSignal(false)
+                                  let frame: number | undefined
 
                                   createEffect(
                                     on(
                                       active,
                                       (value) => {
+                                        cancel(frame)
+                                        frame = undefined
                                         if (!value) {
                                           setVisible(false)
                                           return
                                         }
 
-                                        requestAnimationFrame(() => {
+                                        frame = requestAnimationFrame(() => {
+                                          frame = undefined
                                           if (!active()) return
                                           setVisible(true)
                                         })
@@ -482,6 +475,8 @@ export function SessionTurn(
                                       { defer: true },
                                     ),
                                   )
+
+                                  onCleanup(() => cancel(frame))
 
                                   return (
                                     <Accordion.Item value={diff.file}>
@@ -532,7 +527,7 @@ export function SessionTurn(
                     </Collapsible>
                   </div>
                 </Show>
-                <Show when={error()}>
+                <Show when={assistantError()}>
                   <Card variant="error" class="error-card">
                     {errorText()}
                   </Card>

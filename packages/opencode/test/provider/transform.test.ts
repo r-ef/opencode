@@ -101,6 +101,91 @@ describe("ProviderTransform.options - setCacheKey", () => {
     })
     expect(result.store).toBe(false)
   })
+
+  test("should reuse previousResponseId from checkpoint for openai provider", () => {
+    const openaiModel = {
+      ...mockModel,
+      providerID: "openai",
+      api: {
+        id: "gpt-5.2",
+        url: "https://api.openai.com",
+        npm: "@ai-sdk/openai",
+      },
+    }
+    const result = ProviderTransform.options({
+      model: openaiModel,
+      sessionID,
+      providerOptions: {},
+      checkpoint: {
+        id: "memory_1",
+        rootID: "ses_root",
+        sessionID: "ses_test",
+        time: Date.now(),
+        strategy: "openai",
+        note: "checkpoint",
+        state: {
+          goal: [],
+          instruction: [],
+          decision: [],
+          artifact: [],
+          file: [],
+          validation: [],
+          pending: [],
+          preference: [],
+          style: [],
+        },
+        provider: {
+          openai: {
+            response_id: "resp_123",
+          },
+        },
+      } as any,
+    })
+    expect(result.previousResponseId).toBe("resp_123")
+  })
+
+  test("should not reuse previousResponseId for codex models", () => {
+    const openaiModel = {
+      ...mockModel,
+      id: "openai/gpt-5.3-codex",
+      providerID: "openai",
+      api: {
+        id: "gpt-5.3-codex",
+        url: "https://api.openai.com",
+        npm: "@ai-sdk/openai",
+      },
+    }
+    const result = ProviderTransform.options({
+      model: openaiModel,
+      sessionID,
+      providerOptions: {},
+      checkpoint: {
+        id: "memory_1",
+        rootID: "ses_root",
+        sessionID: "ses_test",
+        time: Date.now(),
+        strategy: "openai",
+        note: "checkpoint",
+        state: {
+          goal: [],
+          instruction: [],
+          decision: [],
+          artifact: [],
+          file: [],
+          validation: [],
+          pending: [],
+          preference: [],
+          style: [],
+        },
+        provider: {
+          openai: {
+            response_id: "resp_123",
+          },
+        },
+      } as any,
+    })
+    expect(result.previousResponseId).toBeUndefined()
+  })
 })
 
 describe("ProviderTransform.options - gpt-5 textVerbosity", () => {

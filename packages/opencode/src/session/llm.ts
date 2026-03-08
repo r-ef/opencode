@@ -22,6 +22,7 @@ import { SystemPrompt } from "./system"
 import { Flag } from "@/flag/flag"
 import { PermissionNext } from "@/permission/next"
 import { Auth } from "@/auth"
+import type { SessionMemory } from "./memory"
 
 export namespace LLM {
   const log = Log.create({ service: "llm" })
@@ -39,6 +40,7 @@ export namespace LLM {
     tools: Record<string, Tool>
     retries?: number
     toolChoice?: "auto" | "required" | "none"
+    checkpoint?: SessionMemory.Checkpoint
   }
 
   export type StreamOutput = StreamTextResult<ToolSet, unknown>
@@ -100,6 +102,7 @@ export namespace LLM {
           model: input.model,
           sessionID: input.sessionID,
           providerOptions: provider.options,
+          checkpoint: input.checkpoint,
         })
     const options: Record<string, any> = pipe(
       base,

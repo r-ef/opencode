@@ -4,4 +4,4 @@ Use this when the task has multiple plausible strategies and you want parallel e
 
 Pass a short description, the base prompt, the subagent type, and 2-5 branch strategy prompts.
 
-Use background=true to start the tournament asynchronously. Then use task_branch_status with the returned branch_id for aggregate progress, and task_branch_apply to apply the winning branch back to the parent workspace.
+Use background=true to start the tournament asynchronously. Prefer ambient branch tracking by default and let Selene surface the important milestones. Use task_branch_status for manual inspection, and task_branch_apply to apply the winning branch back to the parent workspace when appropriate.

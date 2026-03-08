@@ -25,6 +25,7 @@ import { WorkspaceContext } from "../control-plane/workspace-context"
 import { WorkspaceRouterMiddleware } from "../control-plane/workspace-router-middleware"
 import { ProjectRoutes } from "./routes/project"
 import { SessionRoutes } from "./routes/session"
+import { TaskRoutes } from "./routes/task"
 import { PtyRoutes } from "./routes/pty"
 import { McpRoutes } from "./routes/mcp"
 import { FileRoutes } from "./routes/file"
@@ -225,9 +226,9 @@ export namespace Server {
           openAPIRouteHandler(app, {
             documentation: {
               info: {
-                title: "opencode",
+                title: "selene",
                 version: "0.0.3",
-                description: "opencode api",
+                description: "selene api",
               },
               openapi: "3.1.1",
             },
@@ -247,6 +248,7 @@ export namespace Server {
         .route("/config", ConfigRoutes())
         .route("/experimental", ExperimentalRoutes())
         .route("/session", SessionRoutes())
+        .route("/task", TaskRoutes())
         .route("/permission", PermissionRoutes())
         .route("/question", QuestionRoutes())
         .route("/provider", ProviderRoutes())
@@ -257,7 +259,7 @@ export namespace Server {
           "/instance/dispose",
           describeRoute({
             summary: "Dispose instance",
-            description: "Clean up and dispose the current OpenCode instance, releasing all resources.",
+            description: "Clean up and dispose the current Selene instance, releasing all resources.",
             operationId: "instance.dispose",
             responses: {
               200: {

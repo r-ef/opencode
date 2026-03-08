@@ -13,9 +13,14 @@ import { PermissionNext } from "@/permission/next"
 import { Log } from "@/util/log"
 import { SessionStatus } from "@/session/status"
 import { Instance } from "@/project/instance"
-import { Storage } from "@/storage/storage"
 import { Snapshot } from "@/snapshot"
 import { Worktree } from "@/worktree"
+import { TaskApply } from "@/task/apply"
+import { TaskRun } from "@/task/run"
+import { TaskBranch } from "@/task/branch"
+import { TaskEvent } from "@/task/event"
+import { TaskLineage } from "@/task/lineage"
+import { SessionAmbient } from "@/session/ambient"
 import path from "path"
 import fs from "fs/promises"
 import { fileURLToPath, pathToFileURL } from "bun"
@@ -26,6 +31,7 @@ import BRANCH_DESCRIPTION from "./task_branch.txt"
 import BRANCH_STATUS_DESCRIPTION from "./task_branch_status.txt"
 import BRANCH_APPLY_DESCRIPTION from "./task_branch_apply.txt"
 import CONTEXT_RECONCILE_DESCRIPTION from "./task_context_reconcile.txt"
+import COORDINATE_DESCRIPTION from "./task_coordinate.txt"
 
 const log = Log.create({ service: "tool.task" })
 
@@ -120,41 +126,10 @@ function toolset(config: Awaited<ReturnType<typeof Config.get>>, allow: boolean)
           task_branch_status: false,
           task_branch_apply: false,
           task_context_reconcile: false,
+          task_coordinate: false,
         }),
     ...Object.fromEntries((config.experimental?.primary_tools ?? []).map((item) => [item, false])),
   }
-}
-
-function ruleset(
-  config: Awaited<ReturnType<typeof Config.get>>,
-  allow: boolean,
-): NonNullable<Session.Info["permission"]> {
-  return [
-    {
-      permission: "todowrite",
-      pattern: "*",
-      action: "deny",
-    },
-    {
-      permission: "todoread",
-      pattern: "*",
-      action: "deny",
-    },
-    ...(allow
-      ? []
-      : [
-          {
-            permission: "task" as const,
-            pattern: "*" as const,
-            action: "deny" as const,
-          },
-        ]),
-    ...(config.experimental?.primary_tools?.map((item) => ({
-      pattern: "*",
-      action: "allow" as const,
-      permission: item,
-    })) ?? []),
-  ]
 }
 
 const parameters = z.object({
@@ -251,6 +226,18 @@ const contextReconcileParameters = z.object({
     .describe("When true, keep the source entries as still independently relevant after this resolution"),
 })
 
+const coordinationParameters = z.object({
+  mode: z
+    .enum(["request", "update", "answer", "claim", "release", "resolve"])
+    .describe("Coordination action to publish"),
+  target_session_id: z.string().optional().describe("Optional target sibling session id"),
+  target_agent: z.string().optional().describe("Optional target sibling agent type within the same root session"),
+  request_id: z.string().optional().describe("Optional request thread id that this update belongs to"),
+  title: z.string().optional().describe("Optional short title for the coordination entry"),
+  body: z.string().describe("Actionable coordination message body"),
+  metadata: z.record(z.string(), z.unknown()).optional().describe("Optional structured metadata for the coordination entry"),
+})
+
 function label(item: z.infer<typeof branchParameters>["branches"][number], idx: number) {
   const name = item.name?.trim()
   if (name) return name
@@ -289,7 +276,7 @@ type BranchMeta = {
   name: string
   sessionId: string
   prompt: string
-  status: "pending" | "running" | "completed" | "error" | "cancelled"
+  status: "pending" | "running" | "completed" | "error" | "cancelled" | "interrupted"
   score?: number
   confidence?: number
   reason?: string
@@ -302,14 +289,6 @@ type BranchMeta = {
     passed: number
     failed: number
   }
-}
-
-type BranchWinner = {
-  name: string
-  sessionId: string
-  score: number
-  confidence: number
-  reason: string
 }
 
 const evalInfo = z.object({
@@ -393,9 +372,10 @@ const branchState = z.object({
     .optional(),
 })
 
-type EvalInfo = z.infer<typeof evalInfo>
-type BranchInfo = z.infer<typeof branchInfo>
-type BranchState = z.infer<typeof branchState>
+type EvalInfo = TaskBranch.Eval
+type BranchInfo = TaskBranch.Row
+type BranchState = TaskBranch.Info
+type BranchWinner = TaskBranch.Winner
 type TaskPart = z.infer<typeof part>
 
 type BranchOutput = {
@@ -421,24 +401,80 @@ type WatchRow = {
   text: string
 }
 
-function branchKey(id: string) {
-  return ["task_branch", id]
-}
-
 async function branchLoad(id: string) {
-  return branchState.parse(await Storage.read<BranchState>(branchKey(id)))
+  return TaskBranch.get(id)
 }
 
-async function branchSave(state: BranchState) {
-  await Storage.write(branchKey(state.id), state)
-  return state
+async function branchSave(state: Omit<BranchState, "updated" | "runtime" | "events">) {
+  return TaskBranch.create({
+    id: state.id,
+    sessionId: state.sessionId,
+    rootSessionId: state.rootSessionId,
+    projectID: state.projectID,
+    directory: state.directory,
+    messageId: state.messageId,
+    description: state.description,
+    prompt: state.prompt,
+    subagent: state.subagent,
+    background: state.background,
+    created: state.created,
+    status: state.status,
+    error: state.error,
+    base: state.base,
+    model: state.model,
+    branches: state.branches,
+    winner: state.winner,
+    applied: state.applied,
+  })
 }
 
 async function branchUpdate(id: string, fn: (draft: BranchState) => void) {
-  const next = await Storage.update<BranchState>(branchKey(id), (draft) => {
-    fn(draft)
+  return TaskBranch.update(id, fn)
+}
+
+export async function branchSettle(input: {
+  branchID: string
+  sessionID: string
+  status: "completed" | "error"
+  output?: string
+  error?: string
+  snapshot?: string
+  diff?: Snapshot.FileDiff[]
+  eval?: EvalInfo
+}) {
+  let name = ""
+  let done = false
+  const next = await branchUpdate(input.branchID, (draft) => {
+    if (draft.status !== "running") return
+    const row = draft.branches.find((entry) => entry.sessionId === input.sessionID)
+    if (!row) return
+    if (row.status !== "running" && row.status !== "pending") return
+    name = row.name
+    done = true
+    row.status = input.status
+    row.output = input.output
+    row.error = input.error
+    row.snapshot = input.snapshot
+    row.diff = input.diff
+    row.eval = input.eval
   })
-  return branchState.parse(next)
+  if (!done) return next
+  await TaskBranch.append(input.branchID, {
+    progress:
+      input.status === "completed"
+        ? {
+            kind: "branch_completed",
+            name,
+            sessionId: input.sessionID,
+          }
+        : {
+            kind: "branch_error",
+            name,
+            sessionId: input.sessionID,
+            error: input.error,
+          },
+  })
+  return next
 }
 
 function copy(input: z.infer<typeof part>[], from: string, to: string) {
@@ -601,7 +637,6 @@ export const TaskTool = Tool.define("task", async (ctx) => {
     async execute(params: z.infer<typeof parameters>, ctx) {
       const config = await Config.get()
 
-      // Skip permission check when user explicitly invoked via @ or command subtask
       if (!ctx.extra?.bypassAgentCheck) {
         await ctx.ask({
           permission: "task",
@@ -617,19 +652,29 @@ export const TaskTool = Tool.define("task", async (ctx) => {
       const agent = await Agent.get(params.subagent_type)
       if (!agent) throw new Error(`Unknown agent type: ${params.subagent_type} is not a valid agent type`)
 
-      const hasTaskPermission = agent.permission.some((rule) => rule.permission === "task")
+      const allow = agent.permission.some((rule) => rule.permission === "task")
+      const parent = await Session.get(ctx.sessionID)
+      const permission = await TaskLineage.permission({ parent, allow })
 
       const session = await iife(async () => {
-        if (params.task_id) {
-          const found = await Session.get(params.task_id).catch(() => {})
-          if (found) return found
+        if (!params.task_id) {
+          return Session.create({
+            parentID: ctx.sessionID,
+            title: params.description + ` (@${agent.name} subagent)`,
+            permission,
+          })
         }
 
-        return await Session.create({
+        const found = await TaskLineage.validate({
+          taskID: params.task_id,
           parentID: ctx.sessionID,
-          title: params.description + ` (@${agent.name} subagent)`,
-          permission: ruleset(config, hasTaskPermission),
-        })
+          agent: agent.name,
+        }).then((item) => item.task)
+        await Session.setPermission({ sessionID: found.id, permission })
+        return {
+          ...found,
+          permission,
+        }
       })
       const msg = await MessageV2.get({ sessionID: ctx.sessionID, messageID: ctx.messageID })
       if (msg.info.role !== "assistant") throw new Error("Not an assistant message")
@@ -638,21 +683,35 @@ export const TaskTool = Tool.define("task", async (ctx) => {
         modelID: msg.info.modelID,
         providerID: msg.info.providerID,
       }
-
+      const background = params.background === true
       const messageID = Identifier.ascending("message")
       const promptParts = params.parts?.length ? params.parts : await SessionPrompt.resolvePromptParts(params.prompt)
+      await TaskRun.upsert({
+        session,
+        parent,
+        description: params.description,
+        prompt: params.prompt,
+        agent: agent.name,
+        background,
+        model,
+        resumed: Boolean(params.task_id),
+      })
+
       const run = () =>
-        SessionPrompt.prompt({
-          messageID,
-          sessionID: session.id,
-          model: {
-            modelID: model.modelID,
-            providerID: model.providerID,
-          },
-          agent: agent.name,
-          tools: toolset(config, hasTaskPermission),
-          parts: promptParts,
-        })
+        TaskRun.watch(session.id, () =>
+          SessionPrompt.prompt({
+            messageID,
+            sessionID: session.id,
+            model: {
+              modelID: model.modelID,
+              providerID: model.providerID,
+            },
+            agent: agent.name,
+            tools: toolset(config, allow),
+            permission,
+            parts: promptParts,
+          }),
+        )
 
       const info = await shared(session.id)
 
@@ -661,15 +720,23 @@ export const TaskTool = Tool.define("task", async (ctx) => {
         metadata: {
           sessionId: session.id,
           model,
-          background: params.background === true,
+          background,
           sharedContext: info,
         },
       })
 
-      if (params.background) {
+      if (background) {
+        SessionAmbient.track({
+          kind: "task",
+          id: session.id,
+          parentID: ctx.sessionID,
+          rootID: ctx.sessionID,
+          title: params.description,
+        })
         run()
           .then(async (done) => {
             const text = done.parts.findLast((item) => item.type === "text")?.text ?? ""
+            await TaskRun.finish(session.id, { status: "completed", output: clip(text || "Task completed.") })
             await Session.contextWrite({
               session_id: session.id,
               kind: "task_result",
@@ -688,6 +755,7 @@ export const TaskTool = Tool.define("task", async (ctx) => {
               agent: agent.name,
               error: err,
             })
+            await TaskRun.finish(session.id, { status: "error", error: errText(err) })
             await Session.contextWrite({
               session_id: session.id,
               kind: "task_error",
@@ -710,41 +778,48 @@ export const TaskTool = Tool.define("task", async (ctx) => {
           },
           output: output(
             session.id,
-            "Background subagent started. Continue with other work while it runs. Reuse this task_id later to continue the same subagent session.",
+            "Background subagent started. Selene will track important progress automatically and bring back high-signal updates. Use task_status/task_watch only if the user explicitly wants task internals.",
           ),
         }
       }
 
       function cancel() {
         SessionPrompt.cancel(session.id)
+        void TaskRun.cancel(session.id)
       }
       ctx.abort.addEventListener("abort", cancel)
       using _ = defer(() => ctx.abort.removeEventListener("abort", cancel))
-      const result = await run()
 
-      const text = result.parts.findLast((x) => x.type === "text")?.text ?? ""
-      await Session.contextWrite({
-        session_id: session.id,
-        kind: "task_result",
-        title: params.description,
-        body: clip(text || "Task completed."),
-        metadata: {
-          task_id: session.id,
-          parent_id: ctx.sessionID,
-          agent: agent.name,
-        },
-      }).catch(() => undefined)
-      const sharedContext = await shared(session.id)
+      try {
+        const result = await run()
+        const text = result.parts.findLast((x) => x.type === "text")?.text ?? ""
+        await TaskRun.finish(session.id, { status: "completed", output: clip(text || "Task completed.") })
+        await Session.contextWrite({
+          session_id: session.id,
+          kind: "task_result",
+          title: params.description,
+          body: clip(text || "Task completed."),
+          metadata: {
+            task_id: session.id,
+            parent_id: ctx.sessionID,
+            agent: agent.name,
+          },
+        }).catch(() => undefined)
+        const sharedContext = await shared(session.id)
 
-      return {
-        title: params.description,
-        metadata: {
-          sessionId: session.id,
-          model,
-          background: false,
-          sharedContext,
-        },
-        output: output(session.id, text),
+        return {
+          title: params.description,
+          metadata: {
+            sessionId: session.id,
+            model,
+            background: false,
+            sharedContext,
+          },
+          output: output(session.id, text),
+        }
+      } catch (err) {
+        await TaskRun.finish(session.id, { status: ctx.abort.aborted ? "cancelled" : "error", error: errText(err) })
+        throw err
       }
     },
   }
@@ -812,22 +887,37 @@ function branchRow(input: { item: BranchInfo; stat?: SessionStatus.Info; tool?: 
   return `- ${bits.join(" · ")}`
 }
 
+function branchWinnerLine(input: BranchState) {
+  if (!input.winner) return
+  return `winner: ${input.winner.name} (${input.winner.sessionId}) score=${input.winner.score} confidence=${Math.round(
+    input.winner.confidence * 100,
+  )}% · ${input.winner.reason}`
+}
+
+function branchApplyLine(input: BranchState) {
+  if (input.applied?.status === "completed") return `apply: completed ${input.applied.name}`
+  if (input.applied?.status === "running") return `apply: running ${input.applied.name}`
+  if (input.applied?.status === "error") return `apply: error ${input.applied.error ?? input.applied.name}`
+}
+
 function branchText(state: BranchState) {
   const win = choose(state)
   const body = win?.output || "No branch output."
+  const applied = state.applied
+    ? state.applied.status === "completed"
+      ? `applied: ${state.applied.name} at ${new Date(state.applied.time).toISOString()}`
+      : state.applied.status === "running"
+        ? `applying: ${state.applied.name}`
+        : `apply_error: ${state.applied.error ?? state.applied.name}`
+    : undefined
+  const winner = branchWinnerLine(state)
   return [
     `branch_id: ${state.id}`,
     "<task_branch>",
     `status: ${state.status}`,
     ...state.branches.map((item) => branchRow({ item })),
-    ...(state.winner
-      ? [
-          `winner: ${state.winner.name} (${state.winner.sessionId}) score=${state.winner.score} confidence=${Math.round(
-            state.winner.confidence * 100,
-          )}% · ${state.winner.reason}`,
-        ]
-      : []),
-    ...(state.applied ? [`applied: ${state.applied.name} at ${new Date(state.applied.time).toISOString()}`] : []),
+    ...(winner ? [winner] : []),
+    ...(applied ? [applied] : []),
     "</task_branch>",
     "",
     output(win?.sessionId ?? state.branches[0]?.sessionId ?? state.sessionId, body),
@@ -841,10 +931,27 @@ function branchSummary(state: BranchState) {
     if (item.error) bits.push(item.error)
     return `- ${bits.join(" · ")}`
   })
-  const win = state.winner
+  const winner = state.winner
     ? `winner: ${state.winner.name} (${state.winner.sessionId}) score=${state.winner.score} conf=${Math.round(state.winner.confidence * 100)}%`
     : "winner: none"
-  return clip([`branch_id: ${state.id}`, `status: ${state.status}`, win, ...rows].join("\n"))
+  const applied = branchApplyLine(state)
+  return clip([`branch_id: ${state.id}`, `status: ${state.status}`, winner, ...(applied ? [applied] : []), ...rows].join("\n"))
+}
+
+function branchDone(state: BranchState) {
+  if (state.status === "completed") return "Branch run completed."
+  if (state.status === "cancelled") return "Branch run cancelled."
+  if (state.status === "interrupted") return state.error ?? "Branch run interrupted."
+  if (state.status === "error") return state.error ?? "Branch run failed."
+  return "No new updates yet."
+}
+
+function taskDone(run: TaskRun.Info, text?: string) {
+  if (run.status === "completed") return run.output ?? text ?? "Task completed."
+  if (run.status === "cancelled") return "Task cancelled."
+  if (run.status === "interrupted") return run.error ?? "Task interrupted. Reuse the task_id to continue the same subagent session."
+  if (run.status === "error") return run.error ?? "Task failed."
+  return undefined
 }
 
 export const TaskBranchTool = Tool.define("task_branch", async (ctx) => {
@@ -884,6 +991,8 @@ export const TaskBranchTool = Tool.define("task_branch", async (ctx) => {
       const agent = await Agent.get(params.subagent_type)
       if (!agent) throw new Error(`Unknown agent type: ${params.subagent_type} is not a valid agent type`)
       const allow = agent.permission.some((item) => item.permission === "task")
+      const parent = await Session.get(ctx.sessionID)
+      const permission = await TaskLineage.permission({ parent, allow })
 
       const msg = await MessageV2.get({ sessionID: ctx.sessionID, messageID: ctx.messageID })
       if (msg.info.role !== "assistant") throw new Error("Not an assistant message")
@@ -924,7 +1033,7 @@ export const TaskBranchTool = Tool.define("task_branch", async (ctx) => {
               Session.create({
                 parentID: ctx.sessionID,
                 title: `${params.description} [${name}] (@${agent.name} subagent)`,
-                permission: ruleset(config, allow),
+                permission,
               }),
           })
 
@@ -933,102 +1042,118 @@ export const TaskBranchTool = Tool.define("task_branch", async (ctx) => {
             prompt: item.prompt,
             session,
             run: () =>
-              Promise.resolve()
-                .then(async () => {
-                  if (prep.err) throw prep.err
-                  return Instance.provide({
-                    directory: prep.dir,
-                    fn: async () => {
-                      if (snap && prep.work) {
-                        const patch = await Snapshot.patch(snap)
-                        await Snapshot.revert([patch])
-                      }
-                      const raw = params.parts?.length
-                        ? copy(params.parts, base, prep.dir)
-                        : await SessionPrompt.resolvePromptParts(params.prompt)
-                      const parts = branchPrompt({
-                        base: raw.filter((row): row is TaskPart => {
-                          return row.type === "text" || row.type === "file" || row.type === "agent"
-                        }),
-                        task: params.prompt,
-                        name,
-                        prompt: item.prompt,
+              TaskRun.upsert({
+                session,
+                parent,
+                description: `${params.description} [${name}]`,
+                prompt: [params.prompt, item.prompt].join("\n\n"),
+                agent: agent.name,
+                background: true,
+                model,
+              })
+                .then(() =>
+                  TaskRun.watch(session.id, () =>
+                    Promise.resolve()
+                      .then(async () => {
+                        if (prep.err) throw prep.err
+                        return Instance.provide({
+                          directory: prep.dir,
+                          fn: async () => {
+                            if (snap && prep.work) {
+                              const patch = await Snapshot.patch(snap)
+                              await Snapshot.revert([patch])
+                            }
+                            const raw = params.parts?.length
+                              ? copy(params.parts, base, prep.dir)
+                              : await SessionPrompt.resolvePromptParts(params.prompt)
+                            const parts = branchPrompt({
+                              base: raw.filter((row): row is TaskPart => {
+                                return row.type === "text" || row.type === "file" || row.type === "agent"
+                              }),
+                              task: params.prompt,
+                              name,
+                              prompt: item.prompt,
+                            })
+                            return SessionPrompt.prompt({
+                              messageID: Identifier.ascending("message"),
+                              sessionID: session.id,
+                              model,
+                              agent: agent.name,
+                              tools: toolset(config, allow),
+                              permission,
+                              parts,
+                            })
+                          },
+                        })
                       })
-                      return SessionPrompt.prompt({
-                        messageID: Identifier.ascending("message"),
-                        sessionID: session.id,
-                        model,
-                        agent: agent.name,
-                        tools: toolset(config, allow),
-                        parts,
+                      .then(async () => {
+                        const data = await gather({
+                          sessionId: session.id,
+                          dir: prep.dir,
+                          snap,
+                          iso: Boolean(prep.work),
+                        })
+                        const evaled = evalBranch({
+                          msgs: data.msgs,
+                          diff: data.diff,
+                          text: data.text,
+                        })
+                        await TaskRun.finish(session.id, { status: "completed", output: clip(data.text || "Task completed.") })
+                        await branchSettle({
+                          branchID: id,
+                          sessionID: session.id,
+                          status: "completed",
+                          output: data.text,
+                          snapshot: data.snapshot,
+                          diff: data.diff,
+                          eval: evaled,
+                        })
                       })
-                    },
-                  })
-                })
-                .then(async () => {
-                  const data = await gather({
-                    sessionId: session.id,
-                    dir: prep.dir,
-                    snap,
-                    iso: Boolean(prep.work),
-                  })
-                  const evaled = evalBranch({
-                    msgs: data.msgs,
-                    diff: data.diff,
-                    text: data.text,
-                  })
-                  await branchUpdate(id, (draft) => {
-                    const row = draft.branches.find((entry) => entry.sessionId === session.id)
-                    if (!row) return
-                    row.status = "completed"
-                    row.output = data.text
-                    row.snapshot = data.snapshot
-                    row.diff = data.diff
-                    row.eval = evaled
-                  })
-                })
-                .catch(async (err) => {
-                  const data = await gather({
-                    sessionId: session.id,
-                    dir: prep.dir,
-                    snap,
-                    iso: Boolean(prep.work) && !prep.err,
-                  }).catch(() => ({
-                    msgs: [] as MessageV2.WithParts[],
-                    text: "",
-                    diff: [] as Snapshot.FileDiff[],
-                    snapshot: undefined as string | undefined,
-                  }))
-                  const error = errText(err)
-                  const evaled = evalBranch({
-                    msgs: data.msgs,
-                    diff: data.diff,
-                    text: data.text,
-                    err: error,
-                  })
-                  await branchUpdate(id, (draft) => {
-                    const row = draft.branches.find((entry) => entry.sessionId === session.id)
-                    if (!row) return
-                    row.status = "error"
-                    row.output = data.text
-                    row.error = error
-                    row.snapshot = data.snapshot
-                    row.diff = data.diff
-                    row.eval = evaled
-                  })
-                })
-                .finally(async () => {
-                  if (!prep.work) return
-                  const err = await Worktree.remove({ directory: prep.work.directory }).catch((err) => err)
-                  await branchUpdate(id, (draft) => {
-                    const row = draft.branches.find((entry) => entry.sessionId === session.id)
-                    if (!row) return
-                    row.cleanup = {
-                      done: !err,
-                      error: err ? errText(err) : undefined,
-                    }
-                  })
-                }),
+                      .catch(async (err) => {
+                        const data = await gather({
+                          sessionId: session.id,
+                          dir: prep.dir,
+                          snap,
+                          iso: Boolean(prep.work) && !prep.err,
+                        }).catch(() => ({
+                          msgs: [] as MessageV2.WithParts[],
+                          text: "",
+                          diff: [] as Snapshot.FileDiff[],
+                          snapshot: undefined as string | undefined,
+                        }))
+                        const error = errText(err)
+                        const evaled = evalBranch({
+                          msgs: data.msgs,
+                          diff: data.diff,
+                          text: data.text,
+                          err: error,
+                        })
+                        await TaskRun.finish(session.id, { status: "error", error })
+                        await branchSettle({
+                          branchID: id,
+                          sessionID: session.id,
+                          status: "error",
+                          output: data.text,
+                          error,
+                          snapshot: data.snapshot,
+                          diff: data.diff,
+                          eval: evaled,
+                        })
+                      })
+                      .finally(async () => {
+                        if (!prep.work) return
+                        const err = await Worktree.remove({ directory: prep.work.directory }).catch((err) => err)
+                        await branchUpdate(id, (draft) => {
+                          const row = draft.branches.find((entry) => entry.sessionId === session.id)
+                          if (!row) return
+                          row.cleanup = {
+                            done: !err,
+                            error: err ? errText(err) : undefined,
+                          }
+                        })
+                      }),
+                  ),
+                ),
             work: prep.work,
           }
         }),
@@ -1037,13 +1162,17 @@ export const TaskBranchTool = Tool.define("task_branch", async (ctx) => {
       const first = {
         id,
         sessionId: ctx.sessionID,
+        rootSessionId: parent.rootID,
+        projectID: parent.projectID,
+        directory: parent.directory,
         messageId: ctx.messageID,
         description: params.description,
         prompt: params.prompt,
         subagent: params.subagent_type,
         background: params.background === true,
         created: Date.now(),
-        status: "running",
+        status: "running" as const,
+        error: undefined,
         base: {
           dir: root,
           root: base,
@@ -1060,18 +1189,22 @@ export const TaskBranchTool = Tool.define("task_branch", async (ctx) => {
         })),
         winner: null,
         applied: null,
-      } satisfies BranchState
+      }
       await branchSave(first)
-      const jobs = runs.map((item) => item.run())
+      await Promise.all(
+        first.branches.map((item) =>
+          TaskBranch.append(id, {
+            progress: {
+              kind: "branch_started",
+              name: item.name,
+              sessionId: item.sessionId,
+            },
+          }),
+        ),
+      )
 
       function cancel() {
-        runs.forEach((item) => SessionPrompt.cancel(item.session.id))
-        void branchUpdate(id, (draft) => {
-          draft.status = "cancelled"
-          draft.branches.forEach((item) => {
-            if (item.status === "running") item.status = "cancelled"
-          })
-        })
+        void branchCancel(id)
       }
       ctx.abort.addEventListener("abort", cancel)
       using _ = defer(() => ctx.abort.removeEventListener("abort", cancel))
@@ -1090,25 +1223,37 @@ export const TaskBranchTool = Tool.define("task_branch", async (ctx) => {
         },
       })
 
-      const wait = Promise.allSettled(jobs).then(async () => {
-        const next = await branchUpdate(id, (draft) => {
-          draft.winner = pickWinner(draft.branches)
-          draft.status = draft.branches.some((item) => item.status === "completed") ? "completed" : "error"
+      const wait = TaskBranch.watch(id, () => Promise.allSettled(runs.map((item) => item.run()))).then(async () => {
+        const next = await branchLoad(id)
+        if (next.status !== "running") return next
+        const winner = pickWinner(next.branches)
+        if (winner) await TaskBranch.markWinner(id, winner)
+        const final = await TaskBranch.finish(id, {
+          status: next.branches.some((item) => item.status === "completed") ? "completed" : "error",
+          winner,
         })
+        if (final.status !== "completed" && final.status !== "error") return final
         await Session.contextWrite({
           session_id: ctx.sessionID,
           kind: "task_branch",
           title: params.description,
-          body: branchSummary(next),
+          body: branchSummary(final),
           metadata: {
             branch_id: id,
-            winner: next.winner?.sessionId,
+            winner: final.winner?.sessionId,
           },
         }).catch(() => undefined)
-        return next
+        return final
       })
 
       if (params.background) {
+        SessionAmbient.track({
+          kind: "branch",
+          id,
+          parentID: ctx.sessionID,
+          rootID: ctx.sessionID,
+          title: params.description,
+        })
         void wait.catch((err) => {
           log.error("background branch failed", {
             branchID: id,
@@ -1132,8 +1277,8 @@ export const TaskBranchTool = Tool.define("task_branch", async (ctx) => {
             "",
             ...first.branches.map((item) => `- ${item.name}: ${item.sessionId}`),
             "",
-            "Use task_branch_status with the branch_id for aggregate progress.",
-            "Use task_watch or task_status with each task_id for per-branch detail.",
+            "Selene will track the tournament automatically and surface important milestones.",
+            "Use task_branch_status or task_watch only if the user explicitly wants branch internals.",
           ].join("\n"),
         }
       }
@@ -1196,6 +1341,99 @@ function running(msgs: MessageV2.WithParts[]) {
 function state(stat: SessionStatus.Info) {
   if (stat.type === "retry") return `retry (${stat.attempt})`
   return stat.type
+}
+
+function taskEvent(item: TaskEvent.Info) {
+  if (item.type === "progress" && item.progress) {
+    if (item.progress.kind === "tool_started") {
+      const title = item.progress.title ? `: ${item.progress.title}` : ""
+      return `[running] ${item.progress.tool}${title}`
+    }
+    if (item.progress.kind === "tool_completed") return `[done] ${item.progress.tool}`
+    if (item.progress.kind === "tool_error") return `[error] ${item.progress.tool}: ${item.progress.error}`
+    if (item.progress.kind === "reasoning") return `[thinking] ${item.progress.text}`
+    if (item.progress.kind === "text") return `[text] ${item.progress.text}`
+    if (item.progress.kind === "context_published") {
+      return `[context] published ${item.progress.event} (${item.progress.id})`
+    }
+    return
+  }
+  if (item.type === "completed") return "status: idle"
+  if (item.type === "error") return "status: idle"
+  if (item.type === "cancelled") return "status: idle"
+  if (item.type === "interrupted") return "status: idle"
+}
+
+function branchEvent(item: TaskEvent.Info) {
+  if (item.type === "progress" && item.progress) {
+    if (item.progress.kind === "branch_started") return `[${item.progress.name}] branch started`
+    if (item.progress.kind === "branch_completed") return `[${item.progress.name}] branch completed`
+    if (item.progress.kind === "branch_error") {
+      return `[${item.progress.name}] branch error${item.progress.error ? `: ${item.progress.error}` : ""}`
+    }
+    if (item.progress.kind === "branch_cancelled") return `[${item.progress.name}] branch cancelled`
+    if (item.progress.kind === "branch_tool_started") {
+      const title = item.progress.title ? `: ${item.progress.title}` : ""
+      return `[${item.progress.name}] [running] ${item.progress.tool}${title}`
+    }
+    if (item.progress.kind === "branch_tool_completed") return `[${item.progress.name}] [done] ${item.progress.tool}`
+    if (item.progress.kind === "branch_tool_error") {
+      return `[${item.progress.name}] [error] ${item.progress.tool}: ${item.progress.error}`
+    }
+    if (item.progress.kind === "branch_reasoning") return `[${item.progress.name}] [thinking] ${item.progress.text}`
+    if (item.progress.kind === "branch_text") return `[${item.progress.name}] [text] ${item.progress.text}`
+    if (item.progress.kind === "branch_context_published") {
+      return `[${item.progress.name}] [context] published ${item.progress.event} (${item.progress.id})`
+    }
+    return
+  }
+  if (item.type === "winner" && item.data?.["winner"]) return `winner: ${String(item.data["winner"])}`
+  if (item.type === "applied") {
+    const state = item.data?.["status"]
+    const branch = item.data?.["branch"]
+    if (state === "completed") return `apply: completed ${String(branch)}`
+    if (state === "running") return `apply: running ${String(branch)}`
+  }
+  if (item.type === "apply_error") return `apply: error ${String(item.data?.["error"] ?? item.data?.["branch"] ?? "")}`
+}
+
+function rows(input: TaskEvent.Info[], fn: (item: TaskEvent.Info) => string | undefined) {
+  return input.flatMap((item) => {
+    const text = fn(item)
+    if (!text) return []
+    return [
+      {
+        id: item.id,
+        time: item.time,
+        text,
+      },
+    ]
+  })
+}
+
+function taskRows(run: TaskRun.Info, msgs: MessageV2.WithParts[], stat: SessionStatus.Info) {
+  const next = rows(run.events, taskEvent)
+  if (next.length) return next
+  return events(msgs, stat)
+}
+
+function branchRows(state: BranchState) {
+  const next = rows(state.events, branchEvent)
+  if (
+    state.events.some(
+      (item) =>
+        item.type === "progress" &&
+        (item.progress?.kind === "branch_tool_started" ||
+          item.progress?.kind === "branch_tool_completed" ||
+          item.progress?.kind === "branch_tool_error" ||
+          item.progress?.kind === "branch_reasoning" ||
+          item.progress?.kind === "branch_text" ||
+          item.progress?.kind === "branch_context_published"),
+    )
+  ) {
+    return next
+  }
+  return
 }
 
 function events(msgs: MessageV2.WithParts[], stat: SessionStatus.Info) {
@@ -1306,30 +1544,27 @@ export const TaskStatusTool = Tool.define("task_status", {
   }),
   async execute(params) {
     const id = params.task_id
-    const task = await Session.get(id)
-    if (task.projectID !== Instance.project.id) {
-      throw new Error(`Task not found in current project: ${id}`)
-    }
-
+    const run = await TaskRun.ensure(id)
     const stat = SessionStatus.get(id)
     const msgs = await Session.messages({ sessionID: id, limit: 20 })
     const text = latest(msgs)
-    const done = stat.type === "idle"
+    const done = run.status !== "running"
     const tool = active(msgs)
-    const body = done ? text || "Task completed." : running(msgs)
+    const body = taskDone(run, text) ?? running(msgs)
     const info = await shared(id)
 
     return {
-      title: `Task ${state(stat)}`,
+      title: `Task ${run.status}`,
       metadata: {
         sessionId: id,
         status: stat,
+        run,
         done,
         sharedContext: info,
       },
       output: [
         check(id),
-        `status: ${state(stat)}`,
+        `status: ${run.status}`,
         ...(tool ? [`active_tool: ${tool}`] : []),
         ...sharedRows(info),
         body,
@@ -1339,6 +1574,16 @@ export const TaskStatusTool = Tool.define("task_status", {
   },
 })
 
+export async function taskCancel(id: string) {
+  const task = await Session.get(id)
+  if (task.projectID !== Instance.project.id) {
+    throw new Error(`Task not found in current project: ${id}`)
+  }
+  SessionPrompt.cancel(id)
+  await TaskRun.cancel(id)
+  return TaskRun.ensure(id)
+}
+
 export const TaskCancelTool = Tool.define("task_cancel", {
   description: CANCEL_DESCRIPTION,
   parameters: z.object({
@@ -1346,10 +1591,6 @@ export const TaskCancelTool = Tool.define("task_cancel", {
   }),
   async execute(params, ctx) {
     const id = params.task_id
-    const task = await Session.get(id)
-    if (task.projectID !== Instance.project.id) {
-      throw new Error(`Task not found in current project: ${id}`)
-    }
 
     await ctx.ask({
       permission: "task",
@@ -1360,14 +1601,14 @@ export const TaskCancelTool = Tool.define("task_cancel", {
       },
     })
 
-    SessionPrompt.cancel(id)
+    await taskCancel(id)
     return {
       title: "Task cancelled",
       metadata: {
         sessionId: id,
         cancelled: true,
       },
-      output: [check(id), "status: idle", "Task cancelled.", "</task_status>"].join("\n"),
+      output: [check(id), "status: cancelled", "Task cancelled.", "</task_status>"].join("\n"),
     }
   },
 })
@@ -1389,40 +1630,41 @@ export const TaskWatchTool = Tool.define("task_watch", {
   }),
   async execute(params) {
     const id = params.task_id
-    const task = await Session.get(id)
-    if (task.projectID !== Instance.project.id) {
-      throw new Error(`Task not found in current project: ${id}`)
-    }
-
     const wait = params.wait_ms ?? 0
     const limit = params.limit ?? 20
     let cursor = params.cursor ?? 0
     const end = Date.now() + wait
 
     while (true) {
+      const run = await TaskRun.ensure(id)
       const stat = SessionStatus.get(id)
       const msgs = await Session.messages({ sessionID: id })
-      const next = slice(events(msgs, stat), cursor, limit)
-      const done = stat.type === "idle"
+      const next = slice(taskRows(run, msgs, stat), cursor, limit)
+      const done = run.status !== "running"
       const info = await shared(id)
 
       if (next.rows.length || done || Date.now() >= end) {
         cursor = next.cursor
         return {
-          title: `Task watch ${state(stat)}`,
+          title: `Task watch ${run.status}`,
           metadata: {
             sessionId: id,
             status: stat,
+            run,
             done,
             cursor,
             sharedContext: info,
           },
           output: [
             check(id),
-            `status: ${state(stat)}`,
+            `status: ${run.status}`,
             `cursor: ${cursor}`,
             ...sharedRows(info),
-            ...(next.rows.length ? next.rows : [done ? "Task completed." : "No new updates yet."]),
+            ...(next.rows.length
+              ? next.rows
+              : [
+                  done ? taskDone(run) ?? `Task ${run.status}.` : "No new updates yet.",
+                ]),
             "</task_status>",
           ].join("\n"),
         }
@@ -1444,30 +1686,35 @@ export const TaskBranchStatusTool = Tool.define("task_branch_status", {
 
     while (true) {
       const state = await branchLoad(params.branch_id)
-      const rows = await Promise.all(
+      const flow = branchRows(state)
+      const parts = await Promise.all(
         state.branches.map(async (item) => {
           const stat = SessionStatus.get(item.sessionId)
-          const msgs = await Session.messages({ sessionID: item.sessionId })
+          const msgs = flow ? [] : await Session.messages({ sessionID: item.sessionId })
           return {
             item,
             stat,
-            tool: active(msgs),
-            rows: events(msgs, stat).map((row) => ({
-              time: row.time,
-              key: `${item.sessionId}:${row.id}`,
-              text: `[${item.name}] ${row.text}`,
-            })),
+            tool: flow ? undefined : active(msgs),
+            rows: flow
+              ? []
+              : taskRows(await TaskRun.ensure(item.sessionId), msgs, stat).map((row) => ({
+                  time: row.time,
+                  key: `${item.sessionId}:${row.id}`,
+                  text: `[${item.name}] ${row.text}`,
+                })),
           }
         }),
       )
-      const merged = rows
-        .flatMap((item) => item.rows)
-        .sort((a, b) => a.time - b.time || a.key.localeCompare(b.key))
-        .map((item, idx) => ({
-          id: idx + 1,
-          time: item.time,
-          text: item.text,
-        }))
+      const merged = flow
+        ? flow
+        : parts
+            .flatMap((item) => item.rows)
+            .sort((a, b) => a.time - b.time || a.key.localeCompare(b.key))
+            .map((item, idx) => ({
+              id: idx + 1,
+              time: item.time,
+              text: item.text,
+            }))
       const next = slice(merged, cursor, limit)
       const done = state.status !== "running"
       const info = await shared(state.sessionId, state.sessionId, "task_branch")
@@ -1490,18 +1737,16 @@ export const TaskBranchStatusTool = Tool.define("task_branch_status", {
             `branch_id: ${state.id}`,
             "<task_branch_status>",
             `status: ${state.status}`,
+            ...(state.error ? [`error: ${state.error}`] : []),
             ...sharedRows(info),
             ...(published ? [`shared_context_entry: ${published.id} kind=${published.data.kind}`] : []),
-            ...rows.map((item) => branchRow({ item: item.item, stat: item.stat, tool: item.tool })),
+            ...parts.map((item) => branchRow({ item: item.item, stat: item.stat, tool: item.tool })),
             ...(state.winner
-              ? [
-                  `winner: ${state.winner.name} (${state.winner.sessionId}) score=${state.winner.score} confidence=${Math.round(
-                    state.winner.confidence * 100,
-                  )}% · ${state.winner.reason}`,
-                ]
+              ? [branchWinnerLine(state)!]
               : []),
+            ...(branchApplyLine(state) ? [branchApplyLine(state)!] : []),
             `cursor: ${cursor}`,
-            ...(next.rows.length ? next.rows : [done ? "Branch run completed." : "No new updates yet."]),
+            ...(next.rows.length ? next.rows : [done ? branchDone(state) : "No new updates yet."]),
             "</task_branch_status>",
           ].join("\n"),
         }
@@ -1550,10 +1795,163 @@ export const TaskContextReconcileTool = Tool.define("task_context_reconcile", {
   },
 })
 
+export const TaskCoordinateTool = Tool.define("task_coordinate", {
+  description: COORDINATE_DESCRIPTION,
+  parameters: coordinationParameters,
+  async execute(params, ctx) {
+    const map = {
+      request: { kind: "request", status: "open" },
+      update: { kind: "update", status: "open" },
+      answer: { kind: "answer", status: "answered" },
+      claim: { kind: "claim", status: "claimed" },
+      release: { kind: "release", status: "open" },
+      resolve: { kind: "resolution", status: "resolved" },
+    } as const
+    const row = map[params.mode]
+    const info = await Session.coordinationWrite({
+      session_id: ctx.sessionID,
+      target_session_id: params.target_session_id,
+      target_agent: params.target_agent,
+      request_id: params.request_id,
+      title: params.title,
+      body: params.body,
+      metadata: params.metadata,
+      kind: row.kind,
+      status: row.status,
+    })
+    return {
+      title: params.title ?? `Coordination ${params.mode}`,
+      metadata: {
+        sessionId: ctx.sessionID,
+        coordination: info,
+      },
+      output: [
+        `coordination_id: ${info.id}`,
+        "<task_coordinate>",
+        `kind: ${info.kind}`,
+        `status: ${info.status}`,
+        ...(info.request_id ? [`request_id: ${info.request_id}`] : []),
+        ...(info.to_session_id ? [`target_session_id: ${info.to_session_id}`] : []),
+        ...(info.to_agent ? [`target_agent: ${info.to_agent}`] : []),
+        "</task_coordinate>",
+      ].join("\n"),
+    }
+  },
+})
+
 async function read(file: string) {
   return Bun.file(file)
     .text()
     .catch(() => undefined)
+}
+
+export async function branchCancel(id: string) {
+  const state = await branchLoad(id)
+  if (state.projectID !== Instance.project.id) {
+    throw new Error(`Branch run not found in current project: ${id}`)
+  }
+  if (state.status !== "running") return state
+  state.branches.forEach((item) => {
+    SessionPrompt.cancel(item.sessionId)
+    void TaskRun.cancel(item.sessionId)
+  })
+  await TaskBranch.cancel(id)
+  const seen = [] as { name: string; sessionId: string }[]
+  const next = await branchUpdate(id, (draft) => {
+    draft.status = "cancelled"
+    draft.branches.forEach((item) => {
+      if (item.status !== "running" && item.status !== "pending") return
+      item.status = "cancelled"
+      seen.push({
+        name: item.name,
+        sessionId: item.sessionId,
+      })
+    })
+  })
+  await Promise.all(
+    seen.map((item) =>
+      TaskBranch.append(id, {
+        progress: {
+          kind: "branch_cancelled",
+          name: item.name,
+          sessionId: item.sessionId,
+        },
+      }),
+    ),
+  )
+  return next
+}
+
+export async function branchApply(input: z.infer<typeof branchApplyParameters>) {
+  const state = await branchLoad(input.branch_id)
+  if (state.status === "running") throw new Error(`Branch run still running: ${state.id}`)
+
+  const item = choose(state, input.branch)
+  if (!item) throw new Error(`Branch not found in run: ${input.branch ?? state.id}`)
+  if (!item.diff) throw new Error(`Branch has no captured diff: ${item.name}`)
+  const diff = item.diff
+
+  const clash = [] as string[]
+  for (const row of diff) {
+    const file = path.join(state.base.root, row.file)
+    const cur = await read(file)
+    const now = cur ?? ""
+    if (row.status === "deleted" && cur === undefined) continue
+    if (row.status !== "deleted" && now === row.after) continue
+    if (now !== row.before) clash.push(row.file)
+  }
+  if (clash.length) throw new Error(`Apply blocked by local changes: ${clash.join(", ")}`)
+
+  await TaskApply.create({ state, item })
+  await TaskBranch.setApply(state.id, {
+    status: "running",
+    name: item.name,
+    sessionId: item.sessionId,
+    files: diff.length,
+    time: Date.now(),
+  })
+
+  try {
+    await TaskApply.watch(state.id, async () => {
+      for (const row of diff) {
+        const file = path.join(state.base.root, row.file)
+        if (row.status === "deleted") {
+          await fs.rm(file, { force: true })
+          continue
+        }
+        await fs.mkdir(path.dirname(file), { recursive: true })
+        await Bun.write(file, row.after)
+      }
+    })
+  } catch (err) {
+    const fail = errText(err)
+    const text = await TaskApply.rollback(state.id)
+      .then(async () => {
+        await TaskApply.clear(state.id)
+        return fail
+      })
+      .catch((roll) => `${fail}; rollback failed: ${errText(roll)}`)
+    await TaskBranch.setApply(state.id, {
+      status: "error",
+      name: item.name,
+      sessionId: item.sessionId,
+      files: diff.length,
+      time: Date.now(),
+      error: text,
+    })
+    if (text === fail) throw err
+    throw new Error(text)
+  }
+
+  await TaskApply.clear(state.id)
+  await TaskBranch.setApply(state.id, {
+    status: "completed",
+    name: item.name,
+    sessionId: item.sessionId,
+    files: diff.length,
+    time: Date.now(),
+  })
+  return { state: await branchLoad(state.id), item }
 }
 
 export const TaskBranchApplyTool = Tool.define("task_branch_apply", {
@@ -1561,8 +1959,6 @@ export const TaskBranchApplyTool = Tool.define("task_branch_apply", {
   parameters: branchApplyParameters,
   async execute(params, ctx) {
     const state = await branchLoad(params.branch_id)
-    if (state.status === "running") throw new Error(`Branch run still running: ${state.id}`)
-
     const item = choose(state, params.branch)
     if (!item) throw new Error(`Branch not found in run: ${params.branch ?? state.id}`)
     if (!item.diff) throw new Error(`Branch has no captured diff: ${item.name}`)
@@ -1578,47 +1974,17 @@ export const TaskBranchApplyTool = Tool.define("task_branch_apply", {
       },
     })
 
-    const clash = [] as string[]
-    for (const row of item.diff) {
-      const file = path.join(state.base.root, row.file)
-      const cur = await read(file)
-      const now = cur ?? ""
-      if (row.status === "deleted" && cur === undefined) continue
-      if (row.status !== "deleted" && now === row.after) continue
-      if (now !== row.before) clash.push(row.file)
-    }
-    if (clash.length) {
-      throw new Error(`Apply blocked by local changes: ${clash.join(", ")}`)
-    }
-
-    for (const row of item.diff) {
-      const file = path.join(state.base.root, row.file)
-      if (row.status === "deleted") {
-        await fs.rm(file, { force: true })
-        continue
-      }
-      await fs.mkdir(path.dirname(file), { recursive: true })
-      await Bun.write(file, row.after)
-    }
-
-    await branchUpdate(state.id, (draft) => {
-      draft.applied = {
-        name: item.name,
-        sessionId: item.sessionId,
-        files: item.diff?.length ?? 0,
-        time: Date.now(),
-      }
-    })
+    const next = await branchApply(params)
 
     return {
       title: `Applied ${item.name}`,
       metadata: {
-        branchId: state.id,
+        branchId: next.state.id,
         sessionId: item.sessionId,
         files: item.diff.length,
       },
       output: [
-        `branch_id: ${state.id}`,
+        `branch_id: ${next.state.id}`,
         "<task_branch_apply>",
         `status: applied`,
         `branch: ${item.name}`,
