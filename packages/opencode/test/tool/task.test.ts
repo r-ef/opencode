@@ -122,6 +122,43 @@ describe("tool.task status/cancel", () => {
     })
   })
 
+  test("dedupes repeated coordination updates through task_coordinate", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const parent = await Session.create({ title: "parent" })
+        const child = await Session.create({ parentID: parent.id, title: "child" })
+
+        const tool = await TaskCoordinateTool.init()
+        await tool.execute(
+          {
+            mode: "update",
+            title: "Ready",
+            body: "Quality verified - awaiting coordinator.",
+          },
+          { ...base, ask: async () => {}, sessionID: child.id },
+        )
+        await tool.execute(
+          {
+            mode: "update",
+            title: "Ready",
+            body: "Quality verified - awaiting coordinator.",
+          },
+          { ...base, ask: async () => {}, sessionID: child.id },
+        )
+
+        const rows = await Session.coordinationList({
+          session_id: parent.id,
+          include_self: true,
+          limit: 10,
+        })
+        expect(rows).toHaveLength(1)
+        expect(rows[0]?.title).toBe("Ready")
+      },
+    })
+  })
+
   test("cancels task and returns idle status", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({

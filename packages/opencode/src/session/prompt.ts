@@ -49,6 +49,7 @@ import { Lock } from "@/util/lock"
 import { SessionContextBuilder } from "./context-builder"
 import { SessionMemory } from "./memory"
 import { Config } from "@/config/config"
+import { SessionCoordinator } from "./coordinator"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -423,6 +424,84 @@ export namespace SessionPrompt {
               history: msgs,
             })
 
+          const currentUser = msgs.findLast(
+            (msg): msg is MessageV2.WithParts & { info: MessageV2.User } => msg.info.role === "user" && msg.info.id === lastUser.id,
+          )
+          const query = (currentUser?.parts ?? [])
+            .filter((part): part is MessageV2.TextPart => part.type === "text" && !part.synthetic)
+            .map((part) => part.text)
+            .join("\n")
+            .trim()
+          let task = tasks.pop()
+          const gate =
+            !task && session.kind === "interactive" && session.id === session.rootID
+              ? await SessionCoordinator.refresh({
+                  session_id: sessionID,
+                }).catch(() => undefined)
+              : undefined
+
+          if (!task && session.kind === "interactive" && session.id === session.rootID) {
+            await SessionCoordinator.ensure({
+              session_id: sessionID,
+              query,
+            }).catch(() => undefined)
+            const plan = await SessionCoordinator.schedule({
+              session_id: sessionID,
+            }).catch(() => undefined)
+            if (plan?.tasks.length) {
+              await createUserMessage({
+                sessionID,
+                agent: lastUser.agent,
+                model: lastUser.model,
+                parts: plan.tasks.map((item) => ({
+                  type: "subtask" as const,
+                  description: item.description,
+                  prompt: item.prompt,
+                  agent: item.agent,
+                })),
+              })
+              continue
+            }
+          }
+
+          if (!task && gate?.plan && gate.ready && (lastUser.format?.type ?? "text") === "text") {
+            const text = await SessionCoordinator.reply({
+              session_id: sessionID,
+            })
+            if (text) {
+              await coordinatorAnswer({
+                sessionID,
+                user: lastUser,
+                text,
+                kind: "final",
+                summary: gate.summary,
+              })
+              await SessionCoordinator.finalize({
+                session_id: sessionID,
+              }).catch(() => undefined)
+              break
+            }
+          }
+
+          if (!task && gate?.plan && !gate.ready && (lastUser.format?.type ?? "text") === "text") {
+            if (
+              !coordinatorSeen({
+                messages: msgs,
+                kind: "wait",
+                summary: gate.summary,
+              })
+            ) {
+              await coordinatorAnswer({
+                sessionID,
+                user: lastUser,
+                text: coordinatorWait(gate.summary),
+                kind: "wait",
+                summary: gate.summary,
+              })
+            }
+            break
+          }
+
           const model = await Provider.getModel(lastUser.model.providerID, lastUser.model.modelID).catch((e) => {
             if (Provider.ModelNotFoundError.isInstance(e)) {
               const hint = e.data.suggestions?.length ? ` Did you mean: ${e.data.suggestions.join(", ")}?` : ""
@@ -435,7 +514,6 @@ export namespace SessionPrompt {
             }
             throw e
           })
-          const task = tasks.pop()
 
           if (task?.type === "subtask") {
             await executeSubtask({
@@ -666,12 +744,52 @@ export namespace SessionPrompt {
           const modelFinished =
             processor.message.finish && !["tool-calls", "unknown"].includes(processor.message.finish)
 
+          const nextGate =
+            session.kind === "interactive" && session.id === session.rootID
+              ? await SessionCoordinator.refresh({
+                  session_id: sessionID,
+                }).catch(() => undefined)
+              : undefined
+
+          if (nextGate?.plan && modelFinished && !nextGate.ready && !processor.message.error) {
+            if (
+              !coordinatorSeen({
+                messages: await MessageV2.filterCompacted(MessageV2.stream(sessionID)),
+                kind: "wait",
+                summary: nextGate.summary,
+              })
+            ) {
+              await coordinatorAnswer({
+                sessionID,
+                user: lastUser,
+                text: coordinatorWait(nextGate.summary),
+                kind: "wait",
+                summary: nextGate.summary,
+              })
+            }
+            break
+          }
+
+          if (nextGate?.plan && nextGate.ready && modelFinished && !processor.message.error) {
+            await SessionCoordinator.finalize({
+              session_id: sessionID,
+            }).catch(() => undefined)
+          }
+
           if (modelFinished && !processor.message.error) {
             if (format.type === "json_schema") {
-              // Model stopped without calling StructuredOutput tool
+              const attempt = structuredAttempt(currentUser) + 1
+              if (attempt <= format.retryCount) {
+                await structuredRetry({
+                  sessionID,
+                  user: lastUser,
+                  attempt,
+                })
+                continue
+              }
               processor.message.error = new MessageV2.StructuredOutputError({
-                message: "Model did not produce structured output",
-                retries: 0,
+                message: `Model did not produce structured output after ${attempt} attempt${attempt === 1 ? "" : "s"}`,
+                retries: attempt,
               }).toObject()
               await Session.updateMessage(processor.message)
               break
@@ -864,6 +982,124 @@ export namespace SessionPrompt {
         input: part.state.input,
       },
     } satisfies MessageV2.ToolPart)
+  }
+
+  async function coordinatorAnswer(input: {
+    sessionID: string
+    user: MessageV2.User
+    text: string
+    kind?: "wait" | "final"
+    summary?: string
+  }) {
+    const time = Date.now()
+    const msg = (await Session.updateMessage({
+      id: Identifier.ascending("message"),
+      parentID: input.user.id,
+      role: "assistant",
+      mode: input.user.agent,
+      agent: input.user.agent,
+      variant: input.user.variant,
+      path: {
+        cwd: Instance.directory,
+        root: Instance.worktree,
+      },
+      cost: 0,
+      tokens: {
+        input: 0,
+        output: 0,
+        reasoning: 0,
+        cache: { read: 0, write: 0 },
+      },
+      modelID: input.user.model.modelID,
+      providerID: input.user.model.providerID,
+      time: {
+        created: time,
+        completed: time,
+      },
+      finish: "stop",
+      sessionID: input.sessionID,
+    })) as MessageV2.Assistant
+    await Session.updatePart({
+      id: Identifier.ascending("part"),
+      messageID: msg.id,
+      sessionID: input.sessionID,
+      type: "text",
+      text: input.text,
+      synthetic: true,
+      time: {
+        start: time,
+        end: time,
+      },
+      metadata: {
+        coordinator: true,
+        coordinator_kind: input.kind ?? "final",
+        coordinator_summary: input.summary,
+      },
+    } satisfies MessageV2.TextPart)
+    return msg
+  }
+
+  function coordinatorSeen(input: {
+    messages: MessageV2.WithParts[]
+    kind: "wait" | "final"
+    summary: string
+  }) {
+    const msg = input.messages.findLast((item) => item.info.role === "assistant")
+    if (!msg || msg.info.role !== "assistant") return false
+    return msg.parts.some(
+      (part) =>
+        part.type === "text" &&
+        part.metadata?.["coordinator"] === true &&
+        part.metadata?.["coordinator_kind"] === input.kind &&
+        part.metadata?.["coordinator_summary"] === input.summary,
+    )
+  }
+
+  function coordinatorWait(summary: string) {
+    return [
+      "Coordinated analysis is still running.",
+      "",
+      `Status: ${summary}`,
+      "Waiting for the remaining workstreams before final synthesis.",
+    ].join("\n")
+  }
+
+  export function structuredAttempt(input: MessageV2.WithParts | undefined) {
+    if (!input) return 0
+    return input.parts
+      .filter((part): part is MessageV2.TextPart => part.type === "text")
+      .map((part) => Number(part.metadata?.["structured_retry_attempt"] ?? 0))
+      .reduce((max, item) => Math.max(max, Number.isFinite(item) ? item : 0), 0)
+  }
+
+  async function structuredRetry(input: {
+    sessionID: string
+    user: MessageV2.User
+    attempt: number
+  }) {
+    return createUserMessage({
+      sessionID: input.sessionID,
+      agent: input.user.agent,
+      model: input.user.model,
+      format: input.user.format,
+      parts: [
+        {
+          type: "text",
+          synthetic: true,
+          metadata: {
+            structured_retry_attempt: input.attempt,
+          },
+          text: [
+            "<system-reminder>",
+            `Structured output retry ${input.attempt}.`,
+            "Your previous response did not call StructuredOutput correctly.",
+            "Do not explain your intent or add prose.",
+            "Call StructuredOutput now with valid JSON matching the required schema.",
+            "</system-reminder>",
+          ].join("\n"),
+        },
+      ],
+    })
   }
 
   async function lastModel(sessionID: string) {
@@ -1477,6 +1713,9 @@ export namespace SessionPrompt {
                 .join(" · ")
               return `- ${head}\n${item.data.body}`
             }),
+            "",
+            "Treat these as sibling findings that may confirm or contradict each other.",
+            "For broad analysis, compare the strongest conclusions, resolve material conflicts, and get at least one independent verification pass before finalizing.",
           ].join("\n"),
         }),
       )
@@ -1521,7 +1760,12 @@ export namespace SessionPrompt {
             coordination_cursor: coord.cursor,
             coordination_count: coord.entries.length,
           },
-          text: ["Agent collaboration updates:", ...rows].join("\n"),
+          text: [
+            "Agent collaboration updates:",
+            ...rows,
+            "",
+            "Respond to material requests and conflicts before finalizing.",
+          ].join("\n"),
         }),
       )
     }
@@ -1578,6 +1822,8 @@ export namespace SessionPrompt {
           "<system-reminder>",
           "When collaborating with sibling subagents, use task_coordinate for directed requests, handoffs, claims, answers, and resolutions.",
           "Use shared context for broad publishable results that the whole root session tree should see.",
+          "If another agent appears wrong, publish the correction with concrete evidence instead of silently diverging.",
+          "If a conflict remains unresolved, escalate it to the parent so it can reconcile the result before finalizing.",
           "Prefer ambient background progress handled by the harness over manual watch loops.",
           "Do not poll task_watch unless the user explicitly wants task internals or live debugging detail.",
           "Do not wait indefinitely for sibling replies. Continue with best effort and escalate ambiguity or deadlock to the parent.",

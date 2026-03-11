@@ -13,6 +13,30 @@ type ContextData = {
   body: string
   metadata?: Record<string, unknown>
 }
+type PlanRequirements = {
+  primary: number
+  verifier: number
+}
+type WorkMeta = {
+  summary?: string
+  context_id?: number
+  risks?: string[]
+  query?: string
+  attempt?: number
+  retry_of?: string
+  timeout_at?: number
+  error?: string
+  verify_topics?: string[]
+  invalid_claims?: string[]
+  source_files?: string[]
+}
+type ClaimMeta = {
+  verdict?: "report" | "confirm" | "contradict"
+  normalized?: string
+  score?: number
+  issue?: string
+  source_files?: string[]
+}
 
 export const SessionTable = sqliteTable(
   "session",
@@ -190,5 +214,89 @@ export const SessionCoordinationStateTable = sqliteTable(
   (table) => [
     index("session_coordination_state_root_session_id_idx").on(table.root_session_id),
     index("session_coordination_state_cursor_idx").on(table.cursor),
+  ],
+)
+
+export const SessionCoordinatorPlanTable = sqliteTable(
+  "session_coordinator_plan",
+  {
+    id: integer().primaryKey({ autoIncrement: true }),
+    root_session_id: text()
+      .notNull()
+      .references(() => SessionTable.id, { onDelete: "cascade" }),
+    session_id: text()
+      .notNull()
+      .references(() => SessionTable.id, { onDelete: "cascade" }),
+    mode: text().notNull(),
+    status: text().notNull(),
+    query: text().notNull(),
+    requirements: text({ mode: "json" }).notNull().$type<PlanRequirements>(),
+    summary: text(),
+    metadata: text({ mode: "json" }).$type<Record<string, unknown>>(),
+    ...Timestamps,
+  },
+  (table) => [
+    index("session_coordinator_plan_root_session_id_idx").on(table.root_session_id),
+    index("session_coordinator_plan_status_idx").on(table.status),
+  ],
+)
+
+export const SessionCoordinatorWorkTable = sqliteTable(
+  "session_coordinator_work",
+  {
+    id: text().primaryKey(),
+    plan_id: integer()
+      .notNull()
+      .references(() => SessionCoordinatorPlanTable.id, { onDelete: "cascade" }),
+    root_session_id: text()
+      .notNull()
+      .references(() => SessionTable.id, { onDelete: "cascade" }),
+    session_id: text().references(() => SessionTable.id, { onDelete: "set null" }),
+    role: text().notNull(),
+    agent: text().notNull(),
+    scope: text().notNull(),
+    goal: text().notNull(),
+    status: text().notNull(),
+    depends_on: text({ mode: "json" }).$type<string[]>(),
+    verify_against: text(),
+    metadata: text({ mode: "json" }).$type<WorkMeta>(),
+    ...Timestamps,
+  },
+  (table) => [
+    index("session_coordinator_work_plan_id_idx").on(table.plan_id),
+    index("session_coordinator_work_root_session_id_idx").on(table.root_session_id),
+    index("session_coordinator_work_session_id_idx").on(table.session_id),
+    index("session_coordinator_work_status_idx").on(table.status),
+  ],
+)
+
+export const SessionCoordinatorClaimTable = sqliteTable(
+  "session_coordinator_claim",
+  {
+    id: text().primaryKey(),
+    plan_id: integer()
+      .notNull()
+      .references(() => SessionCoordinatorPlanTable.id, { onDelete: "cascade" }),
+    work_id: text()
+      .notNull()
+      .references(() => SessionCoordinatorWorkTable.id, { onDelete: "cascade" }),
+    root_session_id: text()
+      .notNull()
+      .references(() => SessionTable.id, { onDelete: "cascade" }),
+    session_id: text().references(() => SessionTable.id, { onDelete: "set null" }),
+    topic: text().notNull(),
+    statement: text().notNull(),
+    evidence: text({ mode: "json" }).notNull().$type<string[]>(),
+    confidence: text().notNull(),
+    status: text().notNull(),
+    metadata: text({ mode: "json" }).$type<ClaimMeta>(),
+    ...Timestamps,
+  },
+  (table) => [
+    index("session_coordinator_claim_plan_id_idx").on(table.plan_id),
+    index("session_coordinator_claim_work_id_idx").on(table.work_id),
+    index("session_coordinator_claim_root_session_id_idx").on(table.root_session_id),
+    index("session_coordinator_claim_status_idx").on(table.status),
+    index("session_coordinator_claim_topic_idx").on(table.topic),
   ],
 )

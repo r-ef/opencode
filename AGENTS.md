@@ -4,6 +4,24 @@
 - Local `main` ref may not exist; use `dev` or `origin/dev` for diffs.
 - Prefer automation: execute requested actions without confirmation unless blocked by missing info or safety/irreversibility.
 
+## Coordination
+
+- For heavy reading, repo-wide analysis, architecture review, or any task that requires inspecting more than a few files, coordination is mandatory. Do not wait for the user to ask.
+- Treat prompts like `analyze this codebase`, `analyze this repo`, `review this repo`, `find architectural issues`, and `trace how X works` as automatic coordination triggers.
+- For those tasks, start with at least 3 distinct workstreams when the codebase can be partitioned safely. Use more when the scope is broad enough.
+- Decompose broad analysis into distinct workstreams automatically. Prefer parallel tool calls when files or directories can be inspected independently.
+- If literal subagents are available in the runtime, use them. Otherwise, emulate the same behavior with parallel workstreams and explicit coordination.
+- Before the deep read, briefly state the planned workstreams.
+- After the parallel inspection, merge the findings into one report and include a short coordination summary covering scopes inspected and conclusions.
+- Do not perform a serial repo-wide analysis when the work can be decomposed safely. If coordination is impossible in the current runtime, say that explicitly before continuing.
+
+Examples of tasks that require coordination:
+- `analyze this codebase`
+- `review this repo`
+- `find architectural issues`
+- `trace how X works across the project`
+- `audit tests, build system, API surface, or docs`
+
 ## Style Guide
 
 ### General Principles

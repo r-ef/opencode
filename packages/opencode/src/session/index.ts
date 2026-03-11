@@ -1542,6 +1542,32 @@ export namespace Session {
     async (input) => {
       const now = Date.now()
       const top = await root(input.session_id)
+      const prev = Database.use((db) =>
+        db
+          .select()
+          .from(SessionCoordinationTable)
+          .where(
+            and(
+              eq(SessionCoordinationTable.root_session_id, top.id),
+              eq(SessionCoordinationTable.from_session_id, input.session_id),
+            ),
+          )
+          .orderBy(desc(SessionCoordinationTable.id))
+          .all(),
+      )
+        .map(parseCoord)
+        .find(
+          (row) =>
+            now - row.time_created < 30_000 &&
+            row.to_session_id === input.target_session_id &&
+            row.to_agent === input.target_agent &&
+            row.request_id === input.request_id &&
+            row.kind === input.kind &&
+            row.status === coordStatus(input.kind, input.status) &&
+            row.title === input.title &&
+            row.body === input.body,
+        )
+      if (prev) return prev
       if (input.target_session_id) {
         const target = await get(input.target_session_id)
         if (target.rootID !== top.id) {
@@ -1583,7 +1609,7 @@ export namespace Session {
             text: [
               "<system-reminder>",
               "A sibling session has a collaboration update that may affect your next step.",
-              "Review the latest agent collaboration updates, respond if needed, and continue without waiting indefinitely.",
+              "Review the latest agent collaboration updates, respond if needed, and resolve material conflicts before finalizing.",
               "</system-reminder>",
             ].join("\n"),
             metadata: {

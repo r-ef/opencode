@@ -128,6 +128,8 @@ import type {
   SessionCoordinationUpdateResponses,
   SessionCoordinationWriteErrors,
   SessionCoordinationWriteResponses,
+  SessionCoordinatorErrors,
+  SessionCoordinatorResponses,
   SessionCreateErrors,
   SessionCreateResponses,
   SessionDeleteErrors,
@@ -1758,6 +1760,38 @@ export class Session2 extends HeyApiClient {
       ThrowOnError
     >({
       url: "/session/{sessionID}/coordination/actionable",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get coordinator snapshot
+   *
+   * Retrieve deterministic coordinator state for broad analysis plans, including workstreams, claims, conflicts, and readiness.
+   */
+  public coordinator<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<SessionCoordinatorResponses, SessionCoordinatorErrors, ThrowOnError>({
+      url: "/session/{sessionID}/coordinator",
       ...options,
       ...params,
     })

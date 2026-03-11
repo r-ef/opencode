@@ -21,6 +21,7 @@ import { TaskBranch } from "@/task/branch"
 import { TaskEvent } from "@/task/event"
 import { TaskLineage } from "@/task/lineage"
 import { SessionAmbient } from "@/session/ambient"
+import { SessionCoordinator } from "@/session/coordinator"
 import path from "path"
 import fs from "fs/promises"
 import { fileURLToPath, pathToFileURL } from "bun"
@@ -125,8 +126,6 @@ function toolset(config: Awaited<ReturnType<typeof Config.get>>, allow: boolean)
           task_branch: false,
           task_branch_status: false,
           task_branch_apply: false,
-          task_context_reconcile: false,
-          task_coordinate: false,
         }),
     ...Object.fromEntries((config.experimental?.primary_tools ?? []).map((item) => [item, false])),
   }
@@ -685,12 +684,19 @@ export const TaskTool = Tool.define("task", async (ctx) => {
       }
       const background = params.background === true
       const messageID = Identifier.ascending("message")
-      const promptParts = params.parts?.length ? params.parts : await SessionPrompt.resolvePromptParts(params.prompt)
+      const bound = await SessionCoordinator.bind({
+        parent_session_id: ctx.sessionID,
+        session_id: session.id,
+        agent: agent.name,
+        description: params.description,
+        prompt: params.prompt,
+      })
+      const promptParts = params.parts?.length ? params.parts : await SessionPrompt.resolvePromptParts(bound.prompt)
       await TaskRun.upsert({
         session,
         parent,
         description: params.description,
-        prompt: params.prompt,
+        prompt: bound.prompt,
         agent: agent.name,
         background,
         model,
@@ -709,6 +715,7 @@ export const TaskTool = Tool.define("task", async (ctx) => {
             agent: agent.name,
             tools: toolset(config, allow),
             permission,
+            format: bound.format,
             parts: promptParts,
           }),
         )
@@ -735,9 +742,15 @@ export const TaskTool = Tool.define("task", async (ctx) => {
         })
         run()
           .then(async (done) => {
-            const text = done.parts.findLast((item) => item.type === "text")?.text ?? ""
+            const structured = done.info.role === "assistant" ? done.info.structured : undefined
+            const text =
+              (structured && typeof structured === "object" && structured && "summary" in structured && typeof structured.summary === "string"
+                ? structured.summary
+                : undefined) ??
+              done.parts.findLast((item) => item.type === "text")?.text ??
+              ""
             await TaskRun.finish(session.id, { status: "completed", output: clip(text || "Task completed.") })
-            await Session.contextWrite({
+            const row = await Session.contextWrite({
               session_id: session.id,
               kind: "task_result",
               title: params.description,
@@ -748,6 +761,12 @@ export const TaskTool = Tool.define("task", async (ctx) => {
                 agent: agent.name,
               },
             }).catch(() => undefined)
+            await SessionCoordinator.complete({
+              session_id: session.id,
+              text,
+              structured,
+              context_id: row?.id,
+            }).catch(() => undefined)
           })
           .catch(async (err) => {
             log.error("background task failed", {
@@ -756,7 +775,7 @@ export const TaskTool = Tool.define("task", async (ctx) => {
               error: err,
             })
             await TaskRun.finish(session.id, { status: "error", error: errText(err) })
-            await Session.contextWrite({
+            const row = await Session.contextWrite({
               session_id: session.id,
               kind: "task_error",
               title: params.description,
@@ -766,6 +785,11 @@ export const TaskTool = Tool.define("task", async (ctx) => {
                 parent_id: ctx.sessionID,
                 agent: agent.name,
               },
+            }).catch(() => undefined)
+            await SessionCoordinator.fail({
+              session_id: session.id,
+              error: errText(err),
+              context_id: row?.id,
             }).catch(() => undefined)
           })
         return {
@@ -792,9 +816,15 @@ export const TaskTool = Tool.define("task", async (ctx) => {
 
       try {
         const result = await run()
-        const text = result.parts.findLast((x) => x.type === "text")?.text ?? ""
+        const structured = result.info.role === "assistant" ? result.info.structured : undefined
+        const text =
+          (structured && typeof structured === "object" && structured && "summary" in structured && typeof structured.summary === "string"
+            ? structured.summary
+            : undefined) ??
+          result.parts.findLast((x) => x.type === "text")?.text ??
+          ""
         await TaskRun.finish(session.id, { status: "completed", output: clip(text || "Task completed.") })
-        await Session.contextWrite({
+        const row = await Session.contextWrite({
           session_id: session.id,
           kind: "task_result",
           title: params.description,
@@ -804,6 +834,12 @@ export const TaskTool = Tool.define("task", async (ctx) => {
             parent_id: ctx.sessionID,
             agent: agent.name,
           },
+        }).catch(() => undefined)
+        await SessionCoordinator.complete({
+          session_id: session.id,
+          text,
+          structured,
+          context_id: row?.id,
         }).catch(() => undefined)
         const sharedContext = await shared(session.id)
 
@@ -819,6 +855,10 @@ export const TaskTool = Tool.define("task", async (ctx) => {
         }
       } catch (err) {
         await TaskRun.finish(session.id, { status: ctx.abort.aborted ? "cancelled" : "error", error: errText(err) })
+        await SessionCoordinator.fail({
+          session_id: session.id,
+          error: errText(err),
+        }).catch(() => undefined)
         throw err
       }
     },

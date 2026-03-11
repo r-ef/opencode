@@ -154,7 +154,7 @@ export namespace SessionAmbient {
         task.parentID,
         [
           `Background task published a useful update: ${task.title}.`,
-          "Review the latest shared session context and decide the next step yourself when possible.",
+          "Review the latest shared session context, compare it with sibling findings, and reconcile material conflicts before finalizing.",
           `task_id: ${task.id}`,
         ].join("\n"),
         { ambient: true, kind: "task", task_id: task.id, context_id: info.id, context_kind: info.data.kind },
@@ -167,7 +167,7 @@ export namespace SessionAmbient {
         branch.parentID,
         [
           `Background branch published a useful update: ${branch.title}.`,
-          "Review the latest shared session context and continue helping the user.",
+          "Review the latest shared session context, compare competing findings, and reconcile material conflicts before finalizing.",
           `branch_id: ${branch.id}`,
         ].join("\n"),
         { ambient: true, kind: "branch", branch_id: branch.id, context_id: info.id, context_kind: info.data.kind },

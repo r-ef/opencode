@@ -871,6 +871,38 @@ describe("session.message-v2.fromError", () => {
     })
   })
 
+  test("extracts nested provider detail from generic provider errors", () => {
+    const error = new APICallError({
+      message: "Provider returned error",
+      url: "https://example.com/v1/chat",
+      requestBodyValues: {},
+      statusCode: 400,
+      responseHeaders: { "content-type": "application/json" },
+      responseBody: JSON.stringify({
+        error: {
+          message: "Structured output is not supported for this model.",
+        },
+      }),
+      isRetryable: false,
+    })
+
+    const result = MessageV2.fromError(error, { providerID: "minimax" })
+
+    expect(result).toStrictEqual({
+      name: "APIError",
+      data: {
+        message: "Provider error 400 Bad Request: Structured output is not supported for this model.",
+        statusCode: 400,
+        isRetryable: false,
+        responseHeaders: { "content-type": "application/json" },
+        responseBody: '{"error":{"message":"Structured output is not supported for this model."}}',
+        metadata: {
+          url: "https://example.com/v1/chat",
+        },
+      },
+    })
+  })
+
   test("detects context overflow from APICallError provider messages", () => {
     const cases = [
       "prompt is too long: 213462 tokens > 200000 maximum",

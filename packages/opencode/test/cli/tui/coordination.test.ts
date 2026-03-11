@@ -33,6 +33,6 @@ describe("tui coordination", () => {
   test("summarizes idle and active collaboration states", () => {
     expect(summary([])).toBe("No coordination yet")
     expect(summary([{ status: "resolved" }])).toBe("Recent agent collaboration available")
-    expect(summary([{ status: "open" }, { status: "claimed" }])).toBe("2 open coordination items")
+    expect(summary([{ status: "open" }, { status: "claimed" }])).toBe("2 active coordination items")
   })
 })

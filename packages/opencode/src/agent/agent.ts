@@ -141,6 +141,7 @@ export namespace Agent {
             websearch: "allow",
             codesearch: "allow",
             read: "allow",
+            task_coordinate: "allow",
             external_directory: {
               "*": "ask",
               ...Object.fromEntries(whitelistedDirs.map((dir) => [dir, "allow"])),

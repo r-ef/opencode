@@ -5,6 +5,7 @@ import { Instance } from "../../src/project/instance"
 import { Session } from "../../src/session"
 import { MessageV2 } from "../../src/session/message-v2"
 import { SessionAmbient } from "../../src/session/ambient"
+import { SessionCoordinator } from "../../src/session/coordinator"
 import { SessionPrompt } from "../../src/session/prompt"
 import { TaskBranch } from "../../src/task/branch"
 import { TaskRun } from "../../src/task/run"
@@ -26,6 +27,12 @@ async function waitForText(sessionID: string, pattern: string) {
     await Bun.sleep(10)
   }
   throw new Error(`timed out waiting for ${pattern}`)
+}
+
+async function lastAssistantText(sessionID: string) {
+  const msg = await Session.messages({ sessionID }).then((rows) => rows.findLast((item) => item.info.role === "assistant"))
+  if (!msg || msg.info.role !== "assistant") return ""
+  return msg.parts.filter((item) => item.type === "text").map((item) => item.text).join("\n")
 }
 
 describe("session.prompt missing file", () => {
@@ -66,6 +73,7 @@ describe("session.prompt missing file", () => {
         const text = msg.parts.filter((item) => item.type === "text").map((item) => item.text).join("\n")
         expect(text).toContain("Shared session context updates:")
         expect(text).toContain("Left branch finished with passing tests.")
+        expect(text).toContain("get at least one independent verification pass before finalizing")
       },
     })
   })
@@ -179,6 +187,43 @@ describe("session.prompt missing file", () => {
         expect(text).toContain("Shared session context updates:")
         expect(text).toContain("Child task finished successfully.")
         expect(text).toContain("Background work finished.")
+      },
+    })
+  })
+
+  test("injects actionable coordination updates from sibling sessions", async () => {
+    await using tmp = await tmpdir({
+      git: true,
+      config: {
+        agent: {
+          build: {
+            model: "openai/gpt-5.2",
+          },
+        },
+      },
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const root = await Session.create({ title: "root" })
+        const left = await Session.branch({ sessionID: root.id })
+        const right = await Session.branch({ sessionID: root.id })
+
+        await Session.coordinationWrite({
+          session_id: left.id,
+          target_session_id: right.id,
+          kind: "request",
+          status: "open",
+          title: "Check parser",
+          body: "Confirm whether parser fallback is reachable.",
+          request_id: "req_parser",
+        })
+
+        const text = await waitForText(right.id, "Agent collaboration updates:")
+        expect(text).toContain("Agent collaboration updates:")
+        expect(text).toContain("Confirm whether parser fallback is reachable.")
+        expect(text).toContain("Respond to material requests and conflicts before finalizing.")
       },
     })
   })
@@ -407,6 +452,165 @@ describe("session.prompt missing file", () => {
         expect(text[2]).toBe("after-file")
 
         await Session.remove(session.id)
+      },
+    })
+  })
+
+  test("loop emits coordinator-owned synthesis once the plan is ready", async () => {
+    await using tmp = await tmpdir({
+      git: true,
+      config: {
+        agent: {
+          build: {
+            model: "openai/gpt-5.2",
+          },
+        },
+      },
+    })
+    await Bun.write(path.join(tmp.path, "demo.ts"), "export const demo = 1\n")
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const root = await Session.create({ title: "root" })
+        await SessionPrompt.prompt({
+          sessionID: root.id,
+          agent: "build",
+          noReply: true,
+          parts: [{ type: "text", text: "analyze this codebase" }],
+        })
+
+        await SessionCoordinator.ensure({
+          session_id: root.id,
+          query: "analyze this codebase",
+        })
+        const first = await SessionCoordinator.schedule({
+          session_id: root.id,
+        })
+        for (const [idx, item] of first.tasks.entries()) {
+          const child = await Session.create({ parentID: root.id, title: `child-${idx}` })
+          await SessionCoordinator.bind({
+            parent_session_id: root.id,
+            session_id: child.id,
+            agent: item.agent,
+            description: item.description,
+            prompt: item.prompt,
+          })
+          await SessionCoordinator.complete({
+            session_id: child.id,
+            text: [
+              `Primary ${idx}`,
+              "",
+              "<analysis_json>",
+              JSON.stringify({
+                summary: `Primary ${idx}`,
+                claims: [
+                  {
+                    topic: `topic-${idx}`,
+                    statement: `statement-${idx}`,
+                    evidence: [path.join(tmp.path, "demo.ts:1")],
+                    confidence: "high",
+                    verdict: "report",
+                  },
+                ],
+                risks: [],
+                verify_topics: [`topic-${idx}`],
+              }),
+              "</analysis_json>",
+            ].join("\n"),
+          })
+        }
+
+        const verify = await SessionCoordinator.schedule({
+          session_id: root.id,
+        })
+        const child = await Session.create({ parentID: root.id, title: "verifier" })
+        await SessionCoordinator.bind({
+          parent_session_id: root.id,
+          session_id: child.id,
+          agent: verify.tasks[0]!.agent,
+          description: verify.tasks[0]!.description,
+          prompt: verify.tasks[0]!.prompt,
+        })
+        await SessionCoordinator.complete({
+          session_id: child.id,
+          text: [
+            "Verifier",
+            "",
+            "<analysis_json>",
+            JSON.stringify({
+              summary: "Verifier",
+              claims: [
+                {
+                  topic: "topic-0",
+                  statement: "statement-0",
+                  evidence: [path.join(tmp.path, "demo.ts:1")],
+                  confidence: "high",
+                  verdict: "confirm",
+                },
+              ],
+              risks: [],
+              verify_topics: ["topic-0"],
+            }),
+            "</analysis_json>",
+          ].join("\n"),
+        })
+
+        await SessionPrompt.loop({
+          sessionID: root.id,
+        })
+
+        const text = await lastAssistantText(root.id)
+        expect(text).toContain("Accepted findings:")
+        expect(text).toContain("Coordination summary:")
+        expect(text).toContain("statement-0")
+      },
+    })
+  })
+
+  test("loop emits one concise coordinator wait status while blocked", async () => {
+    await using tmp = await tmpdir({
+      git: true,
+      config: {
+        agent: {
+          build: {
+            model: "openai/gpt-5.2",
+          },
+        },
+      },
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const root = await Session.create({ title: "root" })
+        await SessionPrompt.prompt({
+          sessionID: root.id,
+          agent: "build",
+          noReply: true,
+          parts: [{ type: "text", text: "analyze this codebase" }],
+        })
+        await SessionCoordinator.ensure({
+          session_id: root.id,
+          query: "analyze this codebase",
+        })
+        await SessionCoordinator.schedule({
+          session_id: root.id,
+        })
+
+        await SessionPrompt.loop({
+          sessionID: root.id,
+        })
+        await SessionPrompt.loop({
+          sessionID: root.id,
+        })
+
+        const msgs = await Session.messages({ sessionID: root.id })
+        const assistants = msgs.filter((item) => item.info.role === "assistant")
+        expect(assistants).toHaveLength(1)
+        const text = await lastAssistantText(root.id)
+        expect(text).toContain("Coordinated analysis is still running.")
+        expect(text).toContain("Waiting for the remaining workstreams")
       },
     })
   })

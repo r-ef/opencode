@@ -989,6 +989,94 @@ export type EventTaskBranchEvent = {
   }
 }
 
+export type EventSessionCoordinator = {
+  type: "session.coordinator"
+  properties: {
+    root_session_id: string
+    snapshot: {
+      plan?: {
+        id: number
+        root_session_id: string
+        session_id: string
+        mode: "analysis"
+        status:
+          | "planned"
+          | "running"
+          | "awaiting_verification"
+          | "awaiting_reconcile"
+          | "ready_to_finalize"
+          | "finalized"
+        query: string
+        requirements: {
+          primary: number
+          verifier: number
+        }
+        summary?: string
+        metadata?: {
+          [key: string]: unknown
+        }
+        time_created: number
+        time_updated: number
+      }
+      works: Array<{
+        id: string
+        plan_id: number
+        root_session_id: string
+        session_id?: string
+        role: "primary" | "verifier" | "reconciler"
+        agent: string
+        scope: string
+        goal: string
+        status: "planned" | "running" | "completed" | "verified" | "conflict" | "resolved" | "cancelled" | "failed"
+        depends_on?: Array<string>
+        verify_against?: string
+        metadata?: {
+          summary?: string
+          context_id?: number
+          risks?: Array<string>
+          query?: string
+        }
+        time_created: number
+        time_updated: number
+      }>
+      claims: Array<{
+        id: string
+        plan_id: number
+        work_id: string
+        root_session_id: string
+        session_id?: string
+        topic: string
+        statement: string
+        evidence: Array<string>
+        confidence: "low" | "medium" | "high"
+        status: "reported" | "verified" | "conflict" | "resolved" | "rejected"
+        metadata?: {
+          verdict?: "report" | "confirm" | "contradict"
+        }
+        time_created: number
+        time_updated: number
+      }>
+      conflicts: Array<{
+        topic: string
+        claim_ids: Array<string>
+        work_ids: Array<string>
+      }>
+      counts: {
+        primary: {
+          required: number
+          completed: number
+        }
+        verifier: {
+          required: number
+          completed: number
+        }
+      }
+      ready: boolean
+      summary: string
+    }
+  }
+}
+
 export type Todo = {
   /**
    * Brief description of the task
@@ -1338,6 +1426,7 @@ export type Event =
   | EventTaskEvent
   | EventTaskBranchUpdated
   | EventTaskBranchEvent
+  | EventSessionCoordinator
   | EventTodoUpdated
   | EventTuiPromptAppend
   | EventTuiCommandExecute
@@ -3733,6 +3822,117 @@ export type SessionCoordinationActionableResponses = {
 
 export type SessionCoordinationActionableResponse =
   SessionCoordinationActionableResponses[keyof SessionCoordinationActionableResponses]
+
+export type SessionCoordinatorData = {
+  body?: never
+  path: {
+    /**
+     * Session ID
+     */
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/coordinator"
+}
+
+export type SessionCoordinatorErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionCoordinatorError = SessionCoordinatorErrors[keyof SessionCoordinatorErrors]
+
+export type SessionCoordinatorResponses = {
+  /**
+   * Coordinator snapshot
+   */
+  200: {
+    plan?: {
+      id: number
+      root_session_id: string
+      session_id: string
+      mode: "analysis"
+      status: "planned" | "running" | "awaiting_verification" | "awaiting_reconcile" | "ready_to_finalize" | "finalized"
+      query: string
+      requirements: {
+        primary: number
+        verifier: number
+      }
+      summary?: string
+      metadata?: {
+        [key: string]: unknown
+      }
+      time_created: number
+      time_updated: number
+    }
+    works: Array<{
+      id: string
+      plan_id: number
+      root_session_id: string
+      session_id?: string
+      role: "primary" | "verifier" | "reconciler"
+      agent: string
+      scope: string
+      goal: string
+      status: "planned" | "running" | "completed" | "verified" | "conflict" | "resolved" | "cancelled" | "failed"
+      depends_on?: Array<string>
+      verify_against?: string
+      metadata?: {
+        summary?: string
+        context_id?: number
+        risks?: Array<string>
+        query?: string
+      }
+      time_created: number
+      time_updated: number
+    }>
+    claims: Array<{
+      id: string
+      plan_id: number
+      work_id: string
+      root_session_id: string
+      session_id?: string
+      topic: string
+      statement: string
+      evidence: Array<string>
+      confidence: "low" | "medium" | "high"
+      status: "reported" | "verified" | "conflict" | "resolved" | "rejected"
+      metadata?: {
+        verdict?: "report" | "confirm" | "contradict"
+      }
+      time_created: number
+      time_updated: number
+    }>
+    conflicts: Array<{
+      topic: string
+      claim_ids: Array<string>
+      work_ids: Array<string>
+    }>
+    counts: {
+      primary: {
+        required: number
+        completed: number
+      }
+      verifier: {
+        required: number
+        completed: number
+      }
+    }
+    ready: boolean
+    summary: string
+  }
+}
+
+export type SessionCoordinatorResponse = SessionCoordinatorResponses[keyof SessionCoordinatorResponses]
 
 export type SessionTodoData = {
   body?: never

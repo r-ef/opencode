@@ -70,52 +70,76 @@ export function Sidebar(props: { sessionID: string; overlay?: boolean }) {
     () => props.sessionID,
     async (id) => (id ? (await sdk.client.session.coordination({ sessionID: id, limit: 8 })).data ?? [] : []),
   )
+  const [plan, { refetch: refetchPlan }] = createResource(
+    () => session()?.rootID,
+    async (id) => (id ? (await sdk.client.session.coordinator({ sessionID: id })).data : undefined),
+  )
   const [task, { refetch: refetchTask }] = createResource(
     () => session()?.rootID,
     async (id) =>
       id
-        ? (await sdk.client.task.list({ root_session_id: id, limit: 24 })).data?.filter((item) => item.background) ?? []
+        ? (await sdk.client.task.list({ root_session_id: id, limit: 24 })).data ?? []
         : [],
   )
   const [run, { refetch: refetchRun }] = createResource(
     () => session()?.rootID,
     async (id) =>
       id
-        ? ((await sdk.client.taskBranch.list({ limit: 48 })).data ?? []).filter(
-            (item) => item.rootSessionId === id && item.background,
-          )
+        ? ((await sdk.client.taskBranch.list({ limit: 48 })).data ?? []).filter((item) => item.rootSessionId === id)
         : [],
   )
 
-  const openCoord = createMemo(() => coordfmt.open(coord() ?? []))
-
-  const recentCoord = createMemo(() => coordfmt.recent(coord() ?? []))
+  const collab = createMemo(() =>
+    coordfmt.merge(coord() ?? [], [
+      ...(task() ?? []).map((item) => ({
+        kind: "task" as const,
+        title: item.description,
+        status: item.status,
+        time: item.time.updated,
+      })),
+      ...(run() ?? []).map((item) => ({
+        kind: "branch" as const,
+        title: item.description,
+        status: item.status,
+        time: item.updated,
+      })),
+    ]),
+  )
+  const openCoord = createMemo(() => coordfmt.open(collab()))
+  const recentCoord = createMemo(() => coordfmt.recent(collab()))
   const work = createMemo(() => [
-    ...(task() ?? []).map((item) => ({
-      kind: "task" as const,
-      title: item.description,
-      status: item.status,
-      time: item.time.updated,
-    })),
-    ...(run() ?? []).map((item) => ({
-      kind: "branch" as const,
-      title: item.description,
-      status: item.status,
-      time: item.updated,
-    })),
+    ...(task() ?? [])
+      .filter((item) => item.background)
+      .map((item) => ({
+        kind: "task" as const,
+        title: item.description,
+        status: item.status,
+        time: item.time.updated,
+      })),
+    ...(run() ?? [])
+      .filter((item) => item.background)
+      .map((item) => ({
+        kind: "branch" as const,
+        title: item.description,
+        status: item.status,
+        time: item.updated,
+      })),
   ])
 
   const stop = sdk.event.on("session.coordination", (evt) => {
     if (evt.properties.info.root_session_id !== session()?.rootID) return
     void refetchCoord()
+    void refetchPlan()
   })
   const stopTask = sdk.event.on("task.updated", (evt) => {
     if (evt.properties.info.rootSessionID !== session()?.rootID) return
     void refetchTask()
+    void refetchPlan()
   })
   const stopRun = sdk.event.on("task.branch.updated", (evt) => {
     if (evt.properties.info.rootSessionId !== session()?.rootID) return
     void refetchRun()
+    void refetchPlan()
   })
   onCleanup(stop)
   onCleanup(stopTask)
@@ -185,7 +209,10 @@ export function Sidebar(props: { sessionID: string; overlay?: boolean }) {
                 <b>Coordination</b>
               </text>
               <text fg={theme.textMuted}>{openCoord().length} open</text>
-              <text fg={theme.textMuted}>{coordfmt.summary(coord() ?? [])}</text>
+              <Show when={plan()?.plan}>
+                <text fg={theme.textMuted}>{plan()?.summary}</text>
+              </Show>
+              <text fg={theme.textMuted}>{coordfmt.summary(collab())}</text>
               <Show when={recentCoord().length > 0} fallback={<text fg={theme.textMuted}>No coordination yet</text>}>
                 <For each={recentCoord()}>
                   {(item) => (

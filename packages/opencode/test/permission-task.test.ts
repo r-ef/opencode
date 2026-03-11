@@ -104,7 +104,17 @@ describe("PermissionNext.disabled for task tool", () => {
     const ruleset = createRuleset({ "*": "deny" })
     const disabled = PermissionNext.disabled(["task", "task_context_reconcile"], ruleset)
     expect(disabled.has("task")).toBe(true)
-    expect(disabled.has("task_context_reconcile")).toBe(true)
+    expect(disabled.has("task_context_reconcile")).toBe(false)
+  })
+
+  test("coordination tools can remain enabled when task spawning is globally denied", () => {
+    const ruleset: PermissionNext.Ruleset = [
+      { permission: "task", pattern: "*", action: "deny" },
+      { permission: "task_coordinate", pattern: "*", action: "allow" },
+    ]
+    const disabled = PermissionNext.disabled(["task", "task_coordinate"], ruleset)
+    expect(disabled.has("task")).toBe(true)
+    expect(disabled.has("task_coordinate")).toBe(false)
   })
 
   test("task tool is NOT disabled when only specific patterns are denied (no wildcard)", () => {

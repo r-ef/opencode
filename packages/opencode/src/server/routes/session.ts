@@ -16,6 +16,7 @@ import { Log } from "../../util/log"
 import { PermissionNext } from "@/permission/next"
 import { errors } from "../error"
 import { lazy } from "../../util/lazy"
+import { SessionCoordinator } from "@/session/coordinator"
 
 const log = Log.create({ service: "server" })
 
@@ -382,6 +383,36 @@ export const SessionRoutes = lazy(() =>
           agent: query.agent,
           limit: query.limit,
         })
+        return c.json(result)
+      },
+    )
+    .get(
+      "/:sessionID/coordinator",
+      describeRoute({
+        summary: "Get coordinator snapshot",
+        description: "Retrieve deterministic coordinator state for broad analysis plans, including workstreams, claims, conflicts, and readiness.",
+        operationId: "session.coordinator",
+        responses: {
+          200: {
+            description: "Coordinator snapshot",
+            content: {
+              "application/json": {
+                schema: resolver(SessionCoordinator.Snapshot),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator(
+        "param",
+        z.object({
+          sessionID: z.string().meta({ description: "Session ID" }),
+        }),
+      ),
+      async (c) => {
+        const sessionID = c.req.valid("param").sessionID
+        const result = await SessionCoordinator.get(sessionID)
         return c.json(result)
       },
     )

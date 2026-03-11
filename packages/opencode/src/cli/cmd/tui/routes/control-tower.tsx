@@ -907,6 +907,38 @@ export function ControlTower() {
       return (await sdk.client.session.coordination({ sessionID, limit: 8 })).data ?? []
     },
   )
+  const [plan, { refetch: refetchPlan }] = createResource(
+    () => root()?.info.rootID,
+    async (sessionID) => {
+      if (!sessionID) return
+      return (await sdk.client.session.coordinator({ sessionID })).data
+    },
+  )
+  const [sub, { refetch: refetchSub }] = createResource(
+    () => root()?.info.rootID,
+    async (sessionID) => {
+      if (!sessionID) return []
+      return (await sdk.client.task.list({ root_session_id: sessionID, limit: 24 })).data ?? []
+    },
+  )
+  const collab = createMemo(() =>
+    coordfmt.merge(coord() ?? [], [
+      ...(sub() ?? []).map((item) => ({
+        kind: "task" as const,
+        title: item.description,
+        status: item.status,
+        time: item.time.updated,
+      })),
+      ...job.list
+        .filter((item) => item.rootSessionId === root()?.info.rootID)
+        .map((item) => ({
+          kind: "branch" as const,
+          title: item.description,
+          status: item.status,
+          time: item.updated,
+        })),
+    ]),
+  )
 
   createEffect(() => {
     const stop = sdk.event.on("session.coordination", (evt) => {
@@ -914,6 +946,17 @@ export function ControlTower() {
       if (!row) return
       if (evt.properties.info.root_session_id !== row.info.rootID) return
       void refetchCoord()
+      void refetchPlan()
+    })
+    onCleanup(stop)
+  })
+  createEffect(() => {
+    const stop = sdk.event.on("task.updated", (evt) => {
+      const row = root()
+      if (!row) return
+      if (evt.properties.info.rootSessionID !== row.info.rootID) return
+      void refetchSub()
+      void refetchPlan()
     })
     onCleanup(stop)
   })
@@ -962,7 +1005,7 @@ export function ControlTower() {
     const model = sync.data.provider.find((item) => item.id === msg.providerID)?.models[msg.modelID]
     return `${total.toLocaleString()} tokens${model?.limit.context ? ` · ${Math.round((total / model.limit.context) * 100)}%` : ""}`
   })
-  const openCoord = createMemo(() => coordfmt.open(coord() ?? []))
+  const openCoord = createMemo(() => coordfmt.open(collab()))
 
   const stats = createMemo(() => ({
     live: rows().filter((row) => row.status.type !== "idle").length,
@@ -1926,9 +1969,12 @@ export function ControlTower() {
                     <b>Coordination</b>
                   </text>
                   <text fg={theme.textMuted}>{openCoord().length} open</text>
-                  <text fg={theme.textMuted}>{coordfmt.summary(coord() ?? [])}</text>
-                  <Show when={coordfmt.recent(coord() ?? []).length > 0} fallback={<text fg={theme.textMuted}>No coordination yet</text>}>
-                    <For each={coordfmt.recent(coord() ?? [])}>
+                  <Show when={plan()?.plan}>
+                    <text fg={theme.textMuted}>{plan()?.summary}</text>
+                  </Show>
+                  <text fg={theme.textMuted}>{coordfmt.summary(collab())}</text>
+                  <Show when={coordfmt.recent(collab()).length > 0} fallback={<text fg={theme.textMuted}>No coordination yet</text>}>
+                    <For each={coordfmt.recent(collab())}>
                       {(item) => (
                         <box flexDirection="column">
                           <text fg={theme.textMuted} wrapMode="word">

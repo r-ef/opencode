@@ -122,6 +122,47 @@ describe("structured-output.UserMessage", () => {
   })
 })
 
+describe("structured-output retry tracking", () => {
+  test("structuredAttempt reads the latest synthetic retry marker", () => {
+    const msg = {
+      info: {
+        id: "user_1",
+        sessionID: "session_1",
+        role: "user",
+        time: { created: Date.now() },
+        agent: "build",
+        model: { providerID: "test", modelID: "test" },
+      },
+      parts: [
+        {
+          id: "part_1",
+          sessionID: "session_1",
+          messageID: "user_1",
+          type: "text" as const,
+          text: "first retry",
+          synthetic: true,
+          metadata: {
+            structured_retry_attempt: 1,
+          },
+        },
+        {
+          id: "part_2",
+          sessionID: "session_1",
+          messageID: "user_1",
+          type: "text" as const,
+          text: "second retry",
+          synthetic: true,
+          metadata: {
+            structured_retry_attempt: 2,
+          },
+        },
+      ],
+    }
+
+    expect(SessionPrompt.structuredAttempt(msg as any)).toBe(2)
+  })
+})
+
 describe("structured-output.AssistantMessage", () => {
   const baseAssistantMessage = {
     id: "test-id",

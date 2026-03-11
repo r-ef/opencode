@@ -48,15 +48,56 @@ export namespace ProviderError {
     return error.message
   }
 
+  function clip(input: string, max = 240) {
+    const text = input.replace(/\s+/g, " ").trim()
+    if (text.length <= max) return text
+    return text.slice(0, max - 1) + "…"
+  }
+
+  function pick(input: unknown): string | undefined {
+    if (typeof input === "string") {
+      const text = clip(input)
+      return text ? text : undefined
+    }
+    if (Array.isArray(input)) {
+      for (const item of input) {
+        const found = pick(item)
+        if (found) return found
+      }
+      return
+    }
+    if (!input || typeof input !== "object") return
+    const row = input as Record<string, unknown>
+    const direct = ["message", "detail", "title", "reason", "error_description", "description"]
+      .map((key) => row[key])
+      .map((value) => pick(value))
+      .find(Boolean)
+    if (direct) return direct
+    return ["error", "errors", "details", "response"]
+      .map((key) => row[key])
+      .map((value) => pick(value))
+      .find(Boolean)
+  }
+
+  function generic(input: string) {
+    return /provider returned error|unknown error|request failed|api call failed/i.test(input.trim())
+  }
+
+  function status(input?: number) {
+    if (!input) return
+    const text = STATUS_CODES[input]
+    return text ? `${input} ${text}` : String(input)
+  }
+
   function message(providerID: string, e: APICallError) {
     return iife(() => {
       const msg = e.message
+      const body = json(e.responseBody)
+      const detail = pick(body) ?? (typeof e.responseBody === "string" && !/^\s*<!doctype|^\s*<html/i.test(e.responseBody) ? clip(e.responseBody) : undefined)
+      const code = status(e.statusCode)
       if (msg === "") {
-        if (e.responseBody) return e.responseBody
-        if (e.statusCode) {
-          const err = STATUS_CODES[e.statusCode]
-          if (err) return err
-        }
+        if (detail) return code ? `${code}: ${detail}` : detail
+        if (code) return code
         return "Unknown error"
       }
 
@@ -64,32 +105,22 @@ export namespace ProviderError {
       if (transformed !== msg) {
         return transformed
       }
-      if (!e.responseBody || (e.statusCode && msg !== STATUS_CODES[e.statusCode])) {
-        return msg
-      }
-
-      try {
-        const body = JSON.parse(e.responseBody)
-        // try to extract common error message fields
-        const errMsg = body.message || body.error || body.error?.message
-        if (errMsg && typeof errMsg === "string") {
-          return `${msg}: ${errMsg}`
-        }
-      } catch {}
-
-      // If responseBody is HTML (e.g. from a gateway or proxy error page),
-      // provide a human-readable message instead of dumping raw markup
-      if (/^\s*<!doctype|^\s*<html/i.test(e.responseBody)) {
+      if (/^\s*<!doctype|^\s*<html/i.test(e.responseBody ?? "")) {
         if (e.statusCode === 401) {
           return "Unauthorized: request was blocked by a gateway or proxy. Your authentication token may be missing or expired — try running `opencode auth login <your provider URL>` to re-authenticate."
         }
         if (e.statusCode === 403) {
           return "Forbidden: request was blocked by a gateway or proxy. You may not have permission to access this resource — check your account and provider settings."
         }
-        return msg
+        return code && generic(msg) ? `Provider error ${code}` : msg
       }
-
-      return `${msg}: ${e.responseBody}`
+      if (detail) {
+        if (generic(msg)) return code ? `Provider error ${code}: ${detail}` : detail
+        if (detail !== msg) return `${msg}: ${detail}`
+      }
+      if (code && generic(msg)) return `Provider error ${code}`
+      if (code && msg === STATUS_CODES[e.statusCode!]) return `Provider error ${code}`
+      return msg
     }).trim()
   }
 

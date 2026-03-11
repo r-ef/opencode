@@ -26,10 +26,11 @@ Usage notes:
 8. If sibling tasks or branches disagree, use task_context_reconcile with the shared context entry ids to publish an explicit authoritative resolution for future sessions.
 9. Use task_coordinate for directed sibling collaboration and handoffs. Use shared context for broad publishable results. Prefer task_coordinate when one sibling needs a specific answer, claim, or resolution from another.
 10. Subagent coordination is asynchronous. Do not wait indefinitely for another sibling; continue with best effort, publish gaps, and escalate conflicts or deadlocks to the parent.
-11. The agent's outputs should generally be trusted
-12. Clearly tell the agent whether you expect it to write code or just to do research (search, file reads, web fetches, etc.), since it is not aware of the user's intent. Tell it how to verify its work if possible (e.g., relevant test commands).
-13. If the agent description mentions that it should be used proactively, then you should try your best to use it without the user having to ask for it first. Use your judgement.
-14. The harness may send synthetic follow-up reminders when a background task, branch run, or sibling coordination update reaches a useful milestone. When that happens, inspect the latest shared context and collaboration updates, continue proactively, and only mention low-level task tools if the user wants manual control.
+11. For repo-wide analysis or broad code reading, do not stop after the first wave of results. Run at least one independent verification pass over the most important conclusions and resolve material conflicts before finalizing.
+12. The agent's outputs should generally be trusted
+13. Clearly tell the agent whether you expect it to write code or just to do research (search, file reads, web fetches, etc.), since it is not aware of the user's intent. Tell it how to verify its work if possible (e.g., relevant test commands).
+14. If the agent description mentions that it should be used proactively, then you should try your best to use it without the user having to ask for it first. Use your judgement.
+15. The harness may send synthetic follow-up reminders when a background task, branch run, or sibling coordination update reaches a useful milestone. When that happens, inspect the latest shared context and collaboration updates, continue proactively, and only mention low-level task tools if the user wants manual control.
 
 Example usage (NOTE: The agents below are fictional examples for illustration only - use the actual agents listed above):
 
