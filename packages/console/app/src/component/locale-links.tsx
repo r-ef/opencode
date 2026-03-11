@@ -6,11 +6,11 @@ import { useLanguage } from "~/context/language"
 import { LOCALES, route, tag } from "~/lib/language"
 
 function skip(path: string) {
-  const evt = getRequestEvent()
+  const evt = getRequestEvent() as { locals: Record<string, unknown> } | undefined
   if (!evt) return false
 
   const key = "__locale_links_seen"
-  const locals = evt.locals as Record<string, unknown>
+  const locals = evt.locals
   const seen = locals[key] instanceof Set ? (locals[key] as Set<string>) : new Set<string>()
   locals[key] = seen
   if (seen.has(path)) return true

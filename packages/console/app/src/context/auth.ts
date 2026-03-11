@@ -39,10 +39,16 @@ export function useAuthSession() {
 
 export const getActor = async (workspace?: string): Promise<Actor.Info> => {
   "use server"
-  const evt = getRequestEvent()
+  const evt = getRequestEvent() as
+    | {
+        locals: {
+          actor?: Promise<Actor.Info>
+        }
+      }
+    | undefined
   if (!evt) throw new Error("No request event")
   if (evt.locals.actor) return evt.locals.actor
-  evt.locals.actor = (async () => {
+  const act: Promise<Actor.Info> = (async (): Promise<Actor.Info> => {
     const auth = await useAuthSession()
     if (!workspace) {
       const account = auth.data.account ?? {}
@@ -92,7 +98,7 @@ export const getActor = async (workspace?: string): Promise<Actor.Info> => {
           .execute()
           .then((x) => x[0]),
       )
-      if (user) {
+      if (user?.accountID) {
         await Database.use((tx) =>
           tx
             .update(UserTable)
@@ -112,5 +118,6 @@ export const getActor = async (workspace?: string): Promise<Actor.Info> => {
     }
     throw redirect("/auth/authorize")
   })()
-  return evt.locals.actor
+  evt.locals.actor = act
+  return act
 }

@@ -1,5 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
+  "include": ["src", "vite.config.ts", "../../../types/solid-start.d.ts", "../../../types/solid-web.d.ts"],
   "compilerOptions": {
     "target": "ESNext",
     "module": "ESNext",

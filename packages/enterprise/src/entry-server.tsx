@@ -1,10 +1,11 @@
 // @refresh reload
 import { createHandler, StartServer } from "@solidjs/start/server"
+import type { JSX } from "solid-js"
 import { getRequestEvent } from "solid-js/web"
 
 export default createHandler(() => (
   <StartServer
-    document={({ assets, children, scripts }) => {
+    document={({ assets, children, scripts }: { assets?: JSX.Element; children?: JSX.Element; scripts?: JSX.Element }) => {
       const lang = (() => {
         const event = getRequestEvent()
         const header = event?.request.headers.get("accept-language")

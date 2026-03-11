@@ -9,7 +9,7 @@ import "./user-menu.css"
 const logout = action(async () => {
   "use server"
   const auth = await useAuthSession()
-  const event = getRequestEvent()
+  const event = getRequestEvent() as { locals: Record<string, unknown> } | undefined
   const current = auth.data.current
   if (current)
     await auth.update((val) => {

@@ -1,5 +1,6 @@
 // @refresh reload
 import { createHandler, StartServer } from "@solidjs/start/server"
+import type { JSX } from "solid-js"
 import { getRequestEvent } from "solid-js/web"
 import { dir, localeFromRequest, tag } from "~/lib/language"
 
@@ -8,7 +9,7 @@ const criticalCSS = `[data-component="top"]{min-height:80px;display:flex;align-i
 export default createHandler(
   () => (
     <StartServer
-      document={({ assets, children, scripts }) => {
+      document={({ assets, children, scripts }: { assets?: JSX.Element; children?: JSX.Element; scripts?: JSX.Element }) => {
         const evt = getRequestEvent()
         const locale = evt ? localeFromRequest(evt.request) : "en"
 

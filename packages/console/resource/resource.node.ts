@@ -1,3 +1,5 @@
+/// <reference path="./sst-env.d.ts" />
+
 import type { KVNamespaceListOptions, KVNamespaceListResult, KVNamespacePutOptions } from "@cloudflare/workers-types"
 import { Resource as ResourceBase } from "sst"
 import Cloudflare from "cloudflare"
