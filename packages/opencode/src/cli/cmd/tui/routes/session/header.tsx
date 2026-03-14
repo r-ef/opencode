@@ -3,7 +3,6 @@ import { useRouteData } from "@tui/context/route"
 import { useSync } from "@tui/context/sync"
 import { pipe, sumBy } from "remeda"
 import { useTheme } from "@tui/context/theme"
-import { SplitBorder } from "@tui/component/border"
 import type { AssistantMessage, Session } from "@opencode-ai/sdk/v2"
 import { useCommandDialog } from "@tui/component/dialog-command"
 import { useKeybind } from "../../context/keybind"
@@ -13,7 +12,7 @@ const Title = (props: { session: Accessor<Session> }) => {
   const { theme } = useTheme()
   return (
     <text fg={theme.text}>
-      <span style={{ bold: true }}>#</span> <span style={{ bold: true }}>{props.session().title}</span>
+      <span style={{ bold: true }}>{props.session().title}</span>
     </text>
   )
 }
@@ -23,7 +22,7 @@ const ContextInfo = (props: { context: Accessor<string | undefined>; cost: Acces
   return (
     <Show when={props.context()}>
       <text fg={theme.textMuted} wrapMode="none" flexShrink={0}>
-        {props.context()} ({props.cost()})
+        {props.context()} · {props.cost()}
       </text>
     </Show>
   )
@@ -77,15 +76,13 @@ export function Header() {
   return (
     <box flexShrink={0}>
       <box
-        paddingTop={1}
+        paddingTop={0}
         paddingBottom={1}
         paddingLeft={2}
         paddingRight={1}
-        {...SplitBorder}
-        border={["left"]}
-        borderColor={theme.border}
+        border={["bottom"]}
+        borderColor={theme.borderSubtle}
         flexShrink={0}
-        backgroundColor={theme.backgroundPanel}
       >
         <Switch>
           <Match when={session()?.kind === "subagent"}>
@@ -101,9 +98,9 @@ export function Header() {
                   onMouseOver={() => setHover("parent")}
                   onMouseOut={() => setHover(null)}
                   onMouseUp={() => command.trigger("session.parent")}
-                  backgroundColor={hover() === "parent" ? theme.backgroundElement : theme.backgroundPanel}
+                  backgroundColor={hover() === "parent" ? theme.backgroundElement : undefined}
                 >
-                  <text fg={theme.text}>
+                  <text fg={theme.textMuted}>
                     Parent <span style={{ fg: theme.textMuted }}>{keybind.print("session_parent")}</span>
                   </text>
                 </box>
@@ -111,9 +108,9 @@ export function Header() {
                   onMouseOver={() => setHover("prev")}
                   onMouseOut={() => setHover(null)}
                   onMouseUp={() => command.trigger("session.child.previous")}
-                  backgroundColor={hover() === "prev" ? theme.backgroundElement : theme.backgroundPanel}
+                  backgroundColor={hover() === "prev" ? theme.backgroundElement : undefined}
                 >
-                  <text fg={theme.text}>
+                  <text fg={theme.textMuted}>
                     Prev <span style={{ fg: theme.textMuted }}>{keybind.print("session_child_cycle_reverse")}</span>
                   </text>
                 </box>
@@ -121,9 +118,9 @@ export function Header() {
                   onMouseOver={() => setHover("next")}
                   onMouseOut={() => setHover(null)}
                   onMouseUp={() => command.trigger("session.child.next")}
-                  backgroundColor={hover() === "next" ? theme.backgroundElement : theme.backgroundPanel}
+                  backgroundColor={hover() === "next" ? theme.backgroundElement : undefined}
                 >
-                  <text fg={theme.text}>
+                  <text fg={theme.textMuted}>
                     Next <span style={{ fg: theme.textMuted }}>{keybind.print("session_child_cycle")}</span>
                   </text>
                 </box>
@@ -142,7 +139,7 @@ export function Header() {
                     onMouseOver={() => setHover("branch-list")}
                     onMouseOut={() => setHover(null)}
                     onMouseUp={() => command.trigger("session.branches")}
-                    backgroundColor={hover() === "branch-list" ? theme.backgroundElement : theme.backgroundPanel}
+                    backgroundColor={hover() === "branch-list" ? theme.backgroundElement : undefined}
                   >
                     <text fg={theme.textMuted}>
                       Branch {branch()}/{branches().length}
@@ -153,9 +150,9 @@ export function Header() {
                       onMouseOver={() => setHover("root")}
                       onMouseOut={() => setHover(null)}
                       onMouseUp={() => command.trigger("session.branch.root")}
-                      backgroundColor={hover() === "root" ? theme.backgroundElement : theme.backgroundPanel}
+                      backgroundColor={hover() === "root" ? theme.backgroundElement : undefined}
                     >
-                      <text fg={theme.text}>
+                      <text fg={theme.textMuted}>
                         Root
                       </text>
                     </box>
@@ -164,9 +161,9 @@ export function Header() {
                     onMouseOver={() => setHover("branch-prev")}
                     onMouseOut={() => setHover(null)}
                     onMouseUp={() => command.trigger("session.branch.previous")}
-                    backgroundColor={hover() === "branch-prev" ? theme.backgroundElement : theme.backgroundPanel}
+                    backgroundColor={hover() === "branch-prev" ? theme.backgroundElement : undefined}
                   >
-                    <text fg={theme.text}>
+                    <text fg={theme.textMuted}>
                       Prev
                     </text>
                   </box>
@@ -174,9 +171,9 @@ export function Header() {
                     onMouseOver={() => setHover("branch-next")}
                     onMouseOut={() => setHover(null)}
                     onMouseUp={() => command.trigger("session.branch.next")}
-                    backgroundColor={hover() === "branch-next" ? theme.backgroundElement : theme.backgroundPanel}
+                    backgroundColor={hover() === "branch-next" ? theme.backgroundElement : undefined}
                   >
-                    <text fg={theme.text}>
+                    <text fg={theme.textMuted}>
                       Next
                     </text>
                   </box>

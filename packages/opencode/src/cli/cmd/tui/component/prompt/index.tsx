@@ -1,6 +1,5 @@
 import { BoxRenderable, TextareaRenderable, MouseEvent, PasteEvent, t, dim, fg } from "@opentui/core"
-import { createEffect, createMemo, type JSX, onMount, createSignal, onCleanup, on, Show, Switch, Match } from "solid-js"
-import "opentui-spinner/solid"
+import { createEffect, createMemo, type JSX, onMount, createSignal, onCleanup, on, Show } from "solid-js"
 import path from "path"
 import { Filesystem } from "@/util/filesystem"
 import { useLocal } from "@tui/context/local"
@@ -22,16 +21,13 @@ import { Editor } from "@tui/util/editor"
 import { useExit } from "../../context/exit"
 import { Clipboard } from "../../util/clipboard"
 import type { FilePart } from "@opencode-ai/sdk/v2"
-import { TuiEvent } from "../../event"
+import { TuiEvent, TuiLocal } from "../../event"
 import { iife } from "@/util/iife"
-import { Locale } from "@/util/locale"
 import { formatDuration } from "@/util/format"
-import { createColors, createFrames } from "../../ui/spinner.ts"
 import { useDialog } from "@tui/ui/dialog"
 import { DialogProvider as DialogProviderConnect } from "../dialog-provider"
 import { DialogAlert } from "../../ui/dialog-alert"
 import { useToast } from "../../ui/toast"
-import { useKV } from "../../context/kv"
 import { useTextareaKeybindings } from "../textarea-keybindings"
 import { DialogSkill } from "../dialog-skill"
 
@@ -62,6 +58,7 @@ export function Prompt(props: PromptProps) {
   let input: TextareaRenderable
   let anchor: BoxRenderable
   let autocomplete: AutocompleteRef
+  let warned = false
 
   const keybind = useKeybind()
   const local = useLocal()
@@ -76,7 +73,6 @@ export function Prompt(props: PromptProps) {
   const command = useCommandDialog()
   const renderer = useRenderer()
   const { theme, syntax } = useTheme()
-  const kv = useKV()
 
   function promptModelWarning() {
     toast.show({
@@ -108,6 +104,28 @@ export function Prompt(props: PromptProps) {
     }, 0)
   })
 
+  const off = TuiLocal.clipboard.on(async (content) => {
+    if (!input || input.isDestroyed || !input.focused || props.disabled) return
+    if (content.mime.startsWith("image/")) {
+      await pasteImage({
+        filename: "clipboard",
+        mime: content.mime,
+        content: content.data,
+      })
+      renderer.requestRender()
+      return
+    }
+    if (!content.mime.startsWith("text/")) return
+    const text = Buffer.from(content.data, "base64").toString("utf8")
+    if (await pasteValue(text)) {
+      renderer.requestRender()
+      return
+    }
+    input.insertText(text)
+    renderer.requestRender()
+  })
+  onCleanup(off)
+
   createEffect(() => {
     if (props.disabled) input.cursorColor = theme.backgroundElement
     if (!props.disabled) input.cursorColor = theme.text
@@ -136,6 +154,32 @@ export function Prompt(props: PromptProps) {
     extmarkToPartIndex: new Map(),
     interrupt: 0,
   })
+
+  function warnImagePaste() {
+    const message = Clipboard.imageWarning()
+    if (!message || warned) return
+    warned = true
+    toast.show({
+      variant: "warning",
+      title: "Image Paste Unavailable",
+      message,
+      duration: 7000,
+    })
+  }
+
+  async function pasteClipboard() {
+    const content = await Clipboard.read()
+    if (content?.mime.startsWith("image/")) {
+      await pasteImage({
+        filename: "clipboard",
+        mime: content.mime,
+        content: content.data,
+      })
+      return true
+    }
+    if (!content) warnImagePaste()
+    return false
+  }
 
   createEffect(
     on(
@@ -211,14 +255,7 @@ export function Prompt(props: PromptProps) {
         category: "Prompt",
         hidden: true,
         onSelect: async () => {
-          const content = await Clipboard.read()
-          if (content?.mime.startsWith("image/")) {
-            await pasteImage({
-              filename: "clipboard",
-              mime: content.mime,
-              content: content.data,
-            })
-          }
+          await pasteClipboard()
         },
       },
       {
@@ -747,17 +784,63 @@ export function Prompt(props: PromptProps) {
     return
   }
 
+  async function pasteValue(text: string) {
+    const normalizedText = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n")
+    const pastedContent = normalizedText.trim()
+    if (!pastedContent) return false
+
+    const data = pastedContent.match(/^data:([^;,]+);base64,([a-z0-9+/=\s]+)$/i)
+    if (data?.[1]?.startsWith("image/")) {
+      await pasteImage({
+        filename: "clipboard",
+        mime: data[1],
+        content: data[2].replace(/\s+/g, ""),
+      })
+      return true
+    }
+
+    const filepath = pastedContent.replace(/^'+|'+$/g, "").replace(/\\ /g, " ")
+    const isUrl = /^(https?):\/\//.test(filepath)
+    if (!isUrl) {
+      try {
+        const mime = Filesystem.mimeType(filepath)
+        const filename = path.basename(filepath)
+        if (mime === "image/svg+xml") {
+          const content = await Filesystem.readText(filepath).catch(() => {})
+          if (content) {
+            pasteText(content, `[SVG: ${filename ?? "image"}]`)
+            return true
+          }
+        }
+        if (mime.startsWith("image/")) {
+          const content = await Filesystem.readArrayBuffer(filepath)
+            .then((buffer) => Buffer.from(buffer).toString("base64"))
+            .catch(() => {})
+          if (content) {
+            await pasteImage({
+              filename,
+              mime,
+              content,
+            })
+            return true
+          }
+        }
+      } catch {}
+    }
+
+    const lineCount = (pastedContent.match(/\n/g)?.length ?? 0) + 1
+    if ((lineCount >= 3 || pastedContent.length > 150) && !sync.data.config.experimental?.disable_paste_summary) {
+      pasteText(pastedContent, `[Pasted ~${lineCount} lines]`)
+      return true
+    }
+
+    return false
+  }
+
   const highlight = createMemo(() => {
     if (keybind.leader) return theme.border
     if (store.mode === "shell") return theme.primary
     return local.agent.color(local.agent.current().name)
-  })
-
-  const showVariant = createMemo(() => {
-    const variants = local.model.variant.list()
-    if (variants.length === 0) return false
-    const current = local.model.variant.current()
-    return !!current
   })
 
   const placeholderText = createMemo(() => {
@@ -767,26 +850,6 @@ export function Prompt(props: PromptProps) {
       return `Run a command... "${example}"`
     }
     return `Ask anything... "${PLACEHOLDERS[store.placeholder % PLACEHOLDERS.length]}"`
-  })
-
-  const spinnerDef = createMemo(() => {
-    const color = local.agent.color(local.agent.current().name)
-    return {
-      frames: createFrames({
-        color,
-        style: "blocks",
-        inactiveFactor: 0.6,
-        // enableFading: false,
-        minAlpha: 0.3,
-      }),
-      color: createColors({
-        color,
-        style: "blocks",
-        inactiveFactor: 0.6,
-        // enableFading: false,
-        minAlpha: 0.3,
-      }),
-    }
   })
 
   return (
@@ -811,356 +874,237 @@ export function Prompt(props: PromptProps) {
         agentStyleId={agentStyleId}
         promptPartTypeId={() => promptPartTypeId}
       />
-      <box ref={(r) => (anchor = r)} visible={props.visible !== false}>
-        <box
-          border={["left"]}
-          borderColor={highlight()}
-          customBorderChars={{
-            ...EmptyBorder,
-            vertical: "┃",
-            bottomLeft: "╹",
-          }}
-        >
-          <box
-            paddingLeft={2}
-            paddingRight={2}
-            paddingTop={1}
-            flexShrink={0}
-            backgroundColor={theme.backgroundElement}
-            flexGrow={1}
-          >
-            <textarea
-              placeholder={placeholderText()}
-              textColor={keybind.leader ? theme.textMuted : theme.text}
-              focusedTextColor={keybind.leader ? theme.textMuted : theme.text}
-              minHeight={1}
-              maxHeight={6}
-              onContentChange={() => {
-                const value = input.plainText
-                setStore("prompt", "input", value)
-                autocomplete.onInput(value)
-                syncExtmarksWithPromptParts()
-              }}
-              keyBindings={textareaKeybindings()}
-              onKeyDown={async (e) => {
-                if (props.disabled) {
-                  e.preventDefault()
-                  return
+      <box ref={(r) => (anchor = r)} visible={props.visible !== false} width="100%" flexDirection="column">
+          <box width="100%" flexDirection="column">
+            <box width="100%" paddingLeft={1} paddingRight={1} flexDirection="row" justifyContent="space-between" gap={2}>
+              <Show
+                when={status().type !== "idle"}
+                fallback={
+                  <box flexDirection="row" gap={1}>
+                    <text fg={highlight()}>{store.mode === "shell" ? "shell" : local.agent.current().name}</text>
+                    <Show when={store.mode === "normal"}>
+                      <text fg={theme.textMuted}>{local.model.parsed().model}</text>
+                    </Show>
+                  </box>
                 }
-                // Handle clipboard paste (Ctrl+V) - check for images first on Windows
-                // This is needed because Windows terminal doesn't properly send image data
-                // through bracketed paste, so we need to intercept the keypress and
-                // directly read from clipboard before the terminal handles it
-                if (keybind.match("input_paste", e)) {
-                  const content = await Clipboard.read()
-                  if (content?.mime.startsWith("image/")) {
-                    e.preventDefault()
-                    await pasteImage({
-                      filename: "clipboard",
-                      mime: content.mime,
-                      content: content.data,
-                    })
-                    return
-                  }
-                  // If no image, let the default paste behavior continue
-                }
-                if (keybind.match("input_clear", e) && store.prompt.input !== "") {
-                  input.clear()
-                  input.extmarks.clear()
-                  setStore("prompt", {
-                    input: "",
-                    parts: [],
-                  })
-                  setStore("extmarkToPartIndex", new Map())
-                  return
-                }
-                if (keybind.match("app_exit", e)) {
-                  if (store.prompt.input === "") {
-                    await exit()
-                    // Don't preventDefault - let textarea potentially handle the event
-                    e.preventDefault()
-                    return
-                  }
-                }
-                if (e.name === "!" && input.visualCursor.offset === 0) {
-                  setStore("placeholder", Math.floor(Math.random() * SHELL_PLACEHOLDERS.length))
-                  setStore("mode", "shell")
-                  e.preventDefault()
-                  return
-                }
-                if (store.mode === "shell") {
-                  if ((e.name === "backspace" && input.visualCursor.offset === 0) || e.name === "escape") {
-                    setStore("mode", "normal")
-                    e.preventDefault()
-                    return
-                  }
-                }
-                if (store.mode === "normal") autocomplete.onKeyDown(e)
-                if (!autocomplete.visible) {
-                  if (
-                    (keybind.match("history_previous", e) && input.cursorOffset === 0) ||
-                    (keybind.match("history_next", e) && input.cursorOffset === input.plainText.length)
-                  ) {
-                    const direction = keybind.match("history_previous", e) ? -1 : 1
-                    const item = history.move(direction, input.plainText)
-
-                    if (item) {
-                      input.setText(item.input)
-                      setStore("prompt", item)
-                      setStore("mode", item.mode ?? "normal")
-                      restoreExtmarksFromParts(item.parts)
-                      e.preventDefault()
-                      if (direction === -1) input.cursorOffset = 0
-                      if (direction === 1) input.cursorOffset = input.plainText.length
-                    }
-                    return
-                  }
-
-                  if (keybind.match("history_previous", e) && input.visualCursor.visualRow === 0) input.cursorOffset = 0
-                  if (keybind.match("history_next", e) && input.visualCursor.visualRow === input.height - 1)
-                    input.cursorOffset = input.plainText.length
-                }
-              }}
-              onSubmit={submit}
-              onPaste={async (event: PasteEvent) => {
-                if (props.disabled) {
-                  event.preventDefault()
-                  return
-                }
-
-                // Normalize line endings at the boundary
-                // Windows ConPTY/Terminal often sends CR-only newlines in bracketed paste
-                // Replace CRLF first, then any remaining CR
-                const normalizedText = event.text.replace(/\r\n/g, "\n").replace(/\r/g, "\n")
-                const pastedContent = normalizedText.trim()
-                if (!pastedContent) {
-                  command.trigger("prompt.paste")
-                  return
-                }
-
-                // trim ' from the beginning and end of the pasted content. just
-                // ' and nothing else
-                const filepath = pastedContent.replace(/^'+|'+$/g, "").replace(/\\ /g, " ")
-                const isUrl = /^(https?):\/\//.test(filepath)
-                if (!isUrl) {
-                  try {
-                    const mime = Filesystem.mimeType(filepath)
-                    const filename = path.basename(filepath)
-                    // Handle SVG as raw text content, not as base64 image
-                    if (mime === "image/svg+xml") {
-                      event.preventDefault()
-                      const content = await Filesystem.readText(filepath).catch(() => {})
-                      if (content) {
-                        pasteText(content, `[SVG: ${filename ?? "image"}]`)
-                        return
-                      }
-                    }
-                    if (mime.startsWith("image/")) {
-                      event.preventDefault()
-                      const content = await Filesystem.readArrayBuffer(filepath)
-                        .then((buffer) => Buffer.from(buffer).toString("base64"))
-                        .catch(() => {})
-                      if (content) {
-                        await pasteImage({
-                          filename,
-                          mime,
-                          content,
-                        })
-                        return
-                      }
-                    }
-                  } catch {}
-                }
-
-                const lineCount = (pastedContent.match(/\n/g)?.length ?? 0) + 1
-                if (
-                  (lineCount >= 3 || pastedContent.length > 150) &&
-                  !sync.data.config.experimental?.disable_paste_summary
-                ) {
-                  event.preventDefault()
-                  pasteText(pastedContent, `[Pasted ~${lineCount} lines]`)
-                  return
-                }
-
-                // Force layout update and render for the pasted content
-                setTimeout(() => {
-                  // setTimeout is a workaround and needs to be addressed properly
-                  if (!input || input.isDestroyed) return
-                  input.getLayoutNode().markDirty()
-                  renderer.requestRender()
-                }, 0)
-              }}
-              ref={(r: TextareaRenderable) => {
-                input = r
-                if (promptPartTypeId === 0) {
-                  promptPartTypeId = input.extmarks.registerType("prompt-part")
-                }
-                props.ref?.(ref)
-                setTimeout(() => {
-                  // setTimeout is a workaround and needs to be addressed properly
-                  if (!input || input.isDestroyed) return
-                  input.cursorColor = theme.text
-                }, 0)
-              }}
-              onMouseDown={(r: MouseEvent) => r.target?.focus()}
-              focusedBackgroundColor={theme.backgroundElement}
-              cursorColor={theme.text}
-              syntaxStyle={syntax()}
-            />
-            <box flexDirection="row" flexShrink={0} paddingTop={1} gap={1}>
-              <text fg={highlight()}>
-                {store.mode === "shell" ? "Shell" : Locale.titlecase(local.agent.current().name)}{" "}
-              </text>
-              <Show when={store.mode === "normal"}>
-                <box flexDirection="row" gap={1}>
-                  <text flexShrink={0} fg={keybind.leader ? theme.textMuted : theme.text}>
-                    {local.model.parsed().model}
-                  </text>
-                  <text fg={theme.textMuted}>{local.model.parsed().provider}</text>
-                  <Show when={showVariant()}>
-                    <text fg={theme.textMuted}>·</text>
-                    <text>
-                      <span style={{ fg: theme.warning, bold: true }}>{local.model.variant.current()}</span>
+              >
+                <box flexDirection="row" gap={1} flexGrow={1} justifyContent="space-between">
+                  <box flexDirection="row" gap={1} flexShrink={0}>
+                    <text fg={status().type === "retry" ? theme.error : highlight()}>
+                      {status().type === "retry" ? "retrying" : local.agent.current().name}
                     </text>
-                  </Show>
+                    <box flexDirection="row" gap={1} flexShrink={0}>
+                      {(() => {
+                        const retry = createMemo(() => {
+                          const s = status()
+                          if (s.type !== "retry") return
+                          return s
+                        })
+                        const message = createMemo(() => {
+                          const r = retry()
+                          if (!r) return
+                          if (r.message.includes("exceeded your current quota") && r.message.includes("gemini"))
+                            return "gemini is way too hot right now"
+                          if (r.message.length > 80) return r.message.slice(0, 80) + "..."
+                          return r.message
+                        })
+                        const isTruncated = createMemo(() => {
+                          const r = retry()
+                          if (!r) return false
+                          return r.message.length > 120
+                        })
+                        const [seconds, setSeconds] = createSignal(0)
+                        onMount(() => {
+                          const timer = setInterval(() => {
+                            const next = retry()?.next
+                            if (next) setSeconds(Math.round((next - Date.now()) / 1000))
+                          }, 1000)
+
+                          onCleanup(() => {
+                            clearInterval(timer)
+                          })
+                        })
+                        const handleMessageClick = () => {
+                          const r = retry()
+                          if (!r) return
+                          if (isTruncated()) {
+                            DialogAlert.show(dialog, "Retry Error", r.message)
+                          }
+                        }
+
+                        const retryText = () => {
+                          const r = retry()
+                          if (!r) return ""
+                          const baseMessage = message()
+                          const truncatedHint = isTruncated() ? " (click to expand)" : ""
+                          const duration = formatDuration(seconds())
+                          const retryInfo = ` [retrying ${duration ? `in ${duration} ` : ""}attempt #${r.attempt}]`
+                          return baseMessage + truncatedHint + retryInfo
+                        }
+
+                        return (
+                          <Show when={retry()}>
+                            <box onMouseUp={handleMessageClick}>
+                              <text fg={theme.error}>{retryText()}</text>
+                            </box>
+                          </Show>
+                        )
+                      })()}
+                    </box>
+                  </box>
+                  <text fg={store.interrupt > 0 ? theme.primary : theme.textMuted}>
+                    <span style={{ fg: store.interrupt > 0 ? theme.primary : theme.textMuted }}>
+                      {store.interrupt > 0 ? "esc again to interrupt" : "esc interrupt"}
+                    </span>
+                  </text>
+                </box>
+              </Show>
+              <Show when={status().type === "idle" && !props.hint}>
+                <box gap={2} flexDirection="row" flexShrink={0}>
+                  <text fg={theme.textMuted}>
+                    {keybind.print("command_list")}
+                  </text>
                 </box>
               </Show>
             </box>
+            <box
+              width="100%"
+              border={["top"]}
+              borderColor={highlight()}
+              customBorderChars={{
+                ...EmptyBorder,
+                horizontal: "─",
+              }}
+              paddingLeft={1}
+              paddingRight={1}
+              paddingBottom={0}
+            >
+              <textarea
+                placeholder={placeholderText()}
+                textColor={keybind.leader ? theme.textMuted : theme.text}
+                focusedTextColor={keybind.leader ? theme.textMuted : theme.text}
+                minHeight={1}
+                maxHeight={4}
+                onContentChange={() => {
+                  const value = input.plainText
+                  setStore("prompt", "input", value)
+                  autocomplete.onInput(value)
+                  syncExtmarksWithPromptParts()
+                }}
+                keyBindings={textareaKeybindings()}
+                onKeyDown={async (e) => {
+                  if (props.disabled) {
+                    e.preventDefault()
+                    return
+                  }
+                  if (keybind.match("input_paste", e)) {
+                    if (await pasteClipboard()) {
+                      e.preventDefault()
+                      return
+                    }
+                  }
+                  if (keybind.match("input_clear", e) && store.prompt.input !== "") {
+                    input.clear()
+                    input.extmarks.clear()
+                    setStore("prompt", {
+                      input: "",
+                      parts: [],
+                    })
+                    setStore("extmarkToPartIndex", new Map())
+                    return
+                  }
+                  if (keybind.match("app_exit", e)) {
+                    if (store.prompt.input === "") {
+                      await exit()
+                      e.preventDefault()
+                      return
+                    }
+                  }
+                  if (e.name === "!" && input.visualCursor.offset === 0) {
+                    setStore("placeholder", Math.floor(Math.random() * SHELL_PLACEHOLDERS.length))
+                    setStore("mode", "shell")
+                    e.preventDefault()
+                    return
+                  }
+                  if (store.mode === "shell") {
+                    if ((e.name === "backspace" && input.visualCursor.offset === 0) || e.name === "escape") {
+                      setStore("mode", "normal")
+                      e.preventDefault()
+                      return
+                    }
+                  }
+                  if (store.mode === "normal") autocomplete.onKeyDown(e)
+                  if (!autocomplete.visible) {
+                    if (
+                      (keybind.match("history_previous", e) && input.cursorOffset === 0) ||
+                      (keybind.match("history_next", e) && input.cursorOffset === input.plainText.length)
+                    ) {
+                      const direction = keybind.match("history_previous", e) ? -1 : 1
+                      const item = history.move(direction, input.plainText)
+
+                      if (item) {
+                        input.setText(item.input)
+                        setStore("prompt", item)
+                        setStore("mode", item.mode ?? "normal")
+                        restoreExtmarksFromParts(item.parts)
+                        e.preventDefault()
+                        if (direction === -1) input.cursorOffset = 0
+                        if (direction === 1) input.cursorOffset = input.plainText.length
+                      }
+                      return
+                    }
+
+                    if (keybind.match("history_previous", e) && input.visualCursor.visualRow === 0) input.cursorOffset = 0
+                    if (keybind.match("history_next", e) && input.visualCursor.visualRow === input.height - 1)
+                      input.cursorOffset = input.plainText.length
+                  }
+                }}
+                onSubmit={submit}
+                onPaste={async (event: PasteEvent) => {
+                  if (props.disabled) {
+                    event.preventDefault()
+                    return
+                  }
+
+                  if (!event.text.trim()) {
+                    command.trigger("prompt.paste")
+                    return
+                  }
+                  if (await pasteValue(event.text)) {
+                    event.preventDefault()
+                    renderer.requestRender()
+                  }
+
+                  setTimeout(() => {
+                    if (!input || input.isDestroyed) return
+                    input.getLayoutNode().markDirty()
+                    renderer.requestRender()
+                  }, 0)
+                }}
+                ref={(r: TextareaRenderable) => {
+                  input = r
+                  if (promptPartTypeId === 0) {
+                    promptPartTypeId = input.extmarks.registerType("prompt-part")
+                  }
+                  props.ref?.(ref)
+                  setTimeout(() => {
+                    if (!input || input.isDestroyed) return
+                    input.cursorColor = theme.text
+                  }, 0)
+                }}
+                onMouseDown={(r: MouseEvent) => r.target?.focus()}
+                focusedBackgroundColor={theme.backgroundElement}
+                cursorColor={theme.text}
+                syntaxStyle={syntax()}
+              />
+            </box>
+            <Show when={props.hint}>
+              <box paddingLeft={1} paddingTop={0}>
+                {props.hint}
+              </box>
+            </Show>
           </box>
         </box>
-        <box
-          height={1}
-          border={["left"]}
-          borderColor={highlight()}
-          customBorderChars={{
-            ...EmptyBorder,
-            vertical: theme.backgroundElement.a !== 0 ? "╹" : " ",
-          }}
-        >
-          <box
-            height={1}
-            border={["bottom"]}
-            borderColor={theme.backgroundElement}
-            customBorderChars={
-              theme.backgroundElement.a !== 0
-                ? {
-                    ...EmptyBorder,
-                    horizontal: "▀",
-                  }
-                : {
-                    ...EmptyBorder,
-                    horizontal: " ",
-                  }
-            }
-          />
-        </box>
-        <box flexDirection="row" justifyContent="space-between">
-          <Show when={status().type !== "idle"} fallback={<text />}>
-            <box
-              flexDirection="row"
-              gap={1}
-              flexGrow={1}
-              justifyContent={status().type === "retry" ? "space-between" : "flex-start"}
-            >
-              <box flexShrink={0} flexDirection="row" gap={1}>
-                <box marginLeft={1}>
-                  <Show when={kv.get("animations_enabled", true)} fallback={<text fg={theme.textMuted}>[⋯]</text>}>
-                    <spinner color={spinnerDef().color} frames={spinnerDef().frames} interval={40} />
-                  </Show>
-                </box>
-                <box flexDirection="row" gap={1} flexShrink={0}>
-                  {(() => {
-                    const retry = createMemo(() => {
-                      const s = status()
-                      if (s.type !== "retry") return
-                      return s
-                    })
-                    const message = createMemo(() => {
-                      const r = retry()
-                      if (!r) return
-                      if (r.message.includes("exceeded your current quota") && r.message.includes("gemini"))
-                        return "gemini is way too hot right now"
-                      if (r.message.length > 80) return r.message.slice(0, 80) + "..."
-                      return r.message
-                    })
-                    const isTruncated = createMemo(() => {
-                      const r = retry()
-                      if (!r) return false
-                      return r.message.length > 120
-                    })
-                    const [seconds, setSeconds] = createSignal(0)
-                    onMount(() => {
-                      const timer = setInterval(() => {
-                        const next = retry()?.next
-                        if (next) setSeconds(Math.round((next - Date.now()) / 1000))
-                      }, 1000)
-
-                      onCleanup(() => {
-                        clearInterval(timer)
-                      })
-                    })
-                    const handleMessageClick = () => {
-                      const r = retry()
-                      if (!r) return
-                      if (isTruncated()) {
-                        DialogAlert.show(dialog, "Retry Error", r.message)
-                      }
-                    }
-
-                    const retryText = () => {
-                      const r = retry()
-                      if (!r) return ""
-                      const baseMessage = message()
-                      const truncatedHint = isTruncated() ? " (click to expand)" : ""
-                      const duration = formatDuration(seconds())
-                      const retryInfo = ` [retrying ${duration ? `in ${duration} ` : ""}attempt #${r.attempt}]`
-                      return baseMessage + truncatedHint + retryInfo
-                    }
-
-                    return (
-                      <Show when={retry()}>
-                        <box onMouseUp={handleMessageClick}>
-                          <text fg={theme.error}>{retryText()}</text>
-                        </box>
-                      </Show>
-                    )
-                  })()}
-                </box>
-              </box>
-              <text fg={store.interrupt > 0 ? theme.primary : theme.text}>
-                esc{" "}
-                <span style={{ fg: store.interrupt > 0 ? theme.primary : theme.textMuted }}>
-                  {store.interrupt > 0 ? "again to interrupt" : "interrupt"}
-                </span>
-              </text>
-            </box>
-          </Show>
-          <Show when={status().type !== "retry"}>
-            <box gap={2} flexDirection="row">
-              <Switch>
-                <Match when={store.mode === "normal"}>
-                  <Show when={local.model.variant.list().length > 0}>
-                    <text fg={theme.text}>
-                      {keybind.print("variant_cycle")} <span style={{ fg: theme.textMuted }}>variants</span>
-                    </text>
-                  </Show>
-                  <text fg={theme.text}>
-                    {keybind.print("agent_cycle")} <span style={{ fg: theme.textMuted }}>agents</span>
-                  </text>
-                  <text fg={theme.text}>
-                    {keybind.print("command_list")} <span style={{ fg: theme.textMuted }}>commands</span>
-                  </text>
-                </Match>
-                <Match when={store.mode === "shell"}>
-                  <text fg={theme.text}>
-                    esc <span style={{ fg: theme.textMuted }}>exit shell mode</span>
-                  </text>
-                </Match>
-              </Switch>
-            </box>
-          </Show>
-        </box>
-      </box>
     </>
   )
 }

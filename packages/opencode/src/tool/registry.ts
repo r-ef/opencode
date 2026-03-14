@@ -149,7 +149,7 @@ export namespace ToolRegistry {
       SkillTool,
       ApplyPatchTool,
       BatchTool,
-      ...(Flag.OPENCODE_EXPERIMENTAL_LSP_TOOL ? [LspTool] : []),
+      LspTool,
       ...(Flag.OPENCODE_EXPERIMENTAL_PLAN_MODE && Flag.OPENCODE_CLIENT === "cli" ? [PlanExitTool] : []),
       ...custom,
     ]

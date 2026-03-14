@@ -464,7 +464,7 @@ export namespace SessionPrompt {
             }
           }
 
-          if (!task && gate?.plan && gate.ready && (lastUser.format?.type ?? "text") === "text") {
+          if (!task && gate?.plan && gate.ready && gate.plan.status !== "finalized" && (lastUser.format?.type ?? "text") === "text") {
             const text = await SessionCoordinator.reply({
               session_id: sessionID,
             })
@@ -516,17 +516,28 @@ export namespace SessionPrompt {
           })
 
           if (task?.type === "subtask") {
-            await executeSubtask({
-              task,
-              session,
-              sessionID,
-              abort,
-              model,
-              lastUser,
-              msgs,
-            })
+            const subtasks: MessageV2.SubtaskPart[] = [task]
+            while (tasks.length) {
+              const next = tasks[tasks.length - 1]
+              if (next.type !== "subtask") break
+              subtasks.push(tasks.pop() as MessageV2.SubtaskPart)
+            }
+            await Promise.all(
+              subtasks.map((t) =>
+                executeSubtask({
+                  task: t,
+                  session,
+                  sessionID,
+                  abort,
+                  model,
+                  lastUser,
+                  msgs,
+                }),
+              ),
+            )
 
-            if (task.command) {
+            for (const t of subtasks) {
+              if (!t.command) continue
               // Add synthetic user message to prevent certain reasoning models from erroring
               // If we create assistant messages w/ out user ones following mid loop thinking signatures
               // will be missing and it can cause errors for models like gemini for example

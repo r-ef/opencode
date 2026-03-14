@@ -13,15 +13,20 @@ import {
   SessionTable,
 } from "./session.sql"
 
-const PLAN_REQUIREMENTS = {
-  primary: 3,
-  verifier: 1,
-} as const
+const DEFAULT_PRIMARY = 2
+const MAX_PRIMARY = 8
+const DEFAULT_VERIFIER = 0
+
+function requirements(query: string) {
+  const match = query.match(/\b(\d+)\s*(?:sub-?agents?|agents?|workstreams?|parallel)\b/i)
+  const requested = match ? Math.min(Math.max(parseInt(match[1], 10), DEFAULT_PRIMARY), MAX_PRIMARY) : DEFAULT_PRIMARY
+  return { primary: requested, verifier: DEFAULT_VERIFIER }
+}
 
 const ANALYSIS_TAG = "analysis_json"
 const WORK_TAG = "coordination-workstream"
-const WORK_TIMEOUT = 3 * 60 * 1000
-const WORK_ATTEMPTS = 3
+const WORK_TIMEOUT = 90 * 1000
+const WORK_ATTEMPTS = 2
 const EVIDENCE_LIMIT = 6
 const CLAIM_LIMIT = 10
 
@@ -60,7 +65,7 @@ export namespace SessionCoordinator {
     query: z.string(),
     requirements: z.object({
       primary: z.number().int().positive(),
-      verifier: z.number().int().positive(),
+      verifier: z.number().int().nonnegative(),
     }),
     summary: z.string().optional(),
     metadata: z.record(z.string(), z.unknown()).optional(),
@@ -144,7 +149,7 @@ export namespace SessionCoordinator {
         completed: z.number().int().nonnegative(),
       }),
       verifier: z.object({
-        required: z.number().int().positive(),
+        required: z.number().int().nonnegative(),
         completed: z.number().int().nonnegative(),
       }),
     }),
@@ -280,9 +285,9 @@ export namespace SessionCoordinator {
   }
 
   function broad(text: string) {
-    return /(analy[sz]e|review|audit|architecture|codebase|repo|repository|trace how|understand this project|map the project)/i.test(
-      text,
-    )
+    if (!/(analy[sz]e|review|audit|architecture|codebase|repo|repository|trace how|understand this project|map the project)/i.test(text)) return false
+    if (/[\w\/.-]+\.[a-z]{1,10}\b/i.test(text) && !/\bcodebase\b|\brepo(sitory)?\b|\bproject\b|\ball\b|\bevery\b|\bwhole\b/i.test(text)) return false
+    return true
   }
 
   function marker(input: { id: string }) {
@@ -373,13 +378,13 @@ export namespace SessionCoordinator {
 
   function parseRef(input: string) {
     const text = input.trim()
-    const match = /^(\/.+?)(?::(\d+)(?::(\d+))?)?$/.exec(text)
+    const match = /^(\/.+?)(?::(\d+)(?:-(\d+)|:(\d+))?)?$/.exec(text)
     if (!match) return
     return {
       raw: text,
       file: match[1]!,
       line: match[2] ? Number(match[2]) : undefined,
-      col: match[3] ? Number(match[3]) : undefined,
+      col: match[4] ? Number(match[4]) : undefined,
     }
   }
 
@@ -457,17 +462,41 @@ export namespace SessionCoordinator {
       list.push(item)
       map.set(key, list)
     }
-    return [...map.entries()].map(([key, list]) => ({
-      key,
-      topic: label(list),
-      row: [...list].toSorted((a, b) => {
-        const as = a.metadata?.score ?? 0
-        const bs = b.metadata?.score ?? 0
-        if (as !== bs) return bs - as
-        if (a.status !== b.status) return a.status === "verified" ? -1 : 1
-        return b.time_updated - a.time_updated
-      })[0]!,
-    }))
+    const entries = [...map.entries()]
+    const merged = new Set<number>()
+    for (let i = 0; i < entries.length; i++) {
+      if (merged.has(i)) continue
+      const [keyA, listA] = entries[i]
+      const tokensA = new Set(keyA.split(" "))
+      for (let j = i + 1; j < entries.length; j++) {
+        if (merged.has(j)) continue
+        const [keyB, listB] = entries[j]
+        const tokensB = new Set(keyB.split(" "))
+        const inter = [...tokensA].filter((t) => tokensB.has(t)).length
+        const union = new Set([...tokensA, ...tokensB]).size
+        const subset = inter === tokensA.size || inter === tokensB.size
+        const jaccard = union > 0 ? inter / union : 0
+        if (subset || jaccard >= 0.7) {
+          const shorter = keyA.length <= keyB.length ? i : j
+          const longer = shorter === i ? j : i
+          entries[shorter][1].push(...(shorter === i ? listB : listA))
+          merged.add(longer)
+        }
+      }
+    }
+    return entries
+      .filter((_, idx) => !merged.has(idx))
+      .map(([key, list]) => ({
+        key,
+        topic: label(list),
+        row: [...list].toSorted((a, b) => {
+          const as = a.metadata?.score ?? 0
+          const bs = b.metadata?.score ?? 0
+          if (as !== bs) return bs - as
+          if (a.status !== b.status) return a.status === "verified" ? -1 : 1
+          return b.time_updated - a.time_updated
+        })[0]!,
+      }))
   }
 
   async function stale(plan: PlanInfo) {
@@ -501,14 +530,22 @@ export namespace SessionCoordinator {
     return dirty
   }
 
-  function formatPrompt(input: { work: WorkInfo; query: string; extra?: string }) {
-    return [
-      marker({ id: input.work.id }),
-      `You are part of a deterministic analysis plan for this root session.`,
-      `Workstream role: ${input.work.role}.`,
-      `Scope: ${input.work.scope}.`,
-      `Goal: ${input.work.goal}.`,
-      `User query: ${input.query}`,
+    function stripMeta(query: string) {
+      return query
+        .replace(/@[\w.\-\/]+/g, "")
+        .replace(/\b(?:use|spawn|launch|run|create|start)\s+\d+\s*(?:sub-?agents?|agents?|workstreams?|parallel\s*(?:agents?|workstreams?)?)\b/gi, "")
+        .replace(/\s{2,}/g, " ")
+        .trim()
+    }
+
+    function formatPrompt(input: { work: WorkInfo; query: string; extra?: string }) {
+      return [
+        marker({ id: input.work.id }),
+        `You are part of a deterministic analysis plan for this root session.`,
+        `Workstream role: ${input.work.role}.`,
+        `Scope: ${input.work.scope}.`,
+        `Goal: ${input.work.goal}.`,
+        `User query: ${stripMeta(input.query)}`,
       input.extra ?? "",
       `Return your final answer in two parts:`,
       `1. A short prose summary.`,
@@ -521,28 +558,25 @@ export namespace SessionCoordinator {
       .join("\n\n")
   }
 
+  const SCOPES: { scope: string; goal: (q: string) => string; agent: string }[] = [
+    { scope: "Structure", goal: (q) => `Map the repository structure, major packages, and important entrypoints relevant to: ${q}`, agent: "explore" },
+    { scope: "Behavior", goal: (q) => `Trace the main control flow, runtime behavior, and critical paths relevant to: ${q}`, agent: "explore" },
+    { scope: "Quality", goal: (q) => `Inspect tests, risks, gaps, and architectural weak spots relevant to: ${q}`, agent: "explore" },
+    { scope: "Security", goal: (q) => `Audit authentication, authorization, input validation, and data exposure relevant to: ${q}`, agent: "explore" },
+    { scope: "Performance", goal: (q) => `Profile hot paths, resource usage, and scalability bottlenecks relevant to: ${q}`, agent: "explore" },
+    { scope: "Dependencies", goal: (q) => `Evaluate external dependencies, version hygiene, and supply chain risks relevant to: ${q}`, agent: "explore" },
+    { scope: "API", goal: (q) => `Review public API surface, contracts, backward compatibility, and documentation relevant to: ${q}`, agent: "explore" },
+    { scope: "Error handling", goal: (q) => `Inspect error propagation, recovery paths, and failure modes relevant to: ${q}`, agent: "explore" },
+  ]
+
   function primary(plan: PlanInfo) {
-    const query = plan.query
-    const rows = [
-      {
-        id: Identifier.ascending("tool"),
-        scope: "Structure",
-        goal: `Map the repository structure, major packages, and important entrypoints relevant to: ${query}`,
-        agent: "explore",
-      },
-      {
-        id: Identifier.ascending("tool"),
-        scope: "Behavior",
-        goal: `Trace the main control flow, runtime behavior, and critical paths relevant to: ${query}`,
-        agent: "explore",
-      },
-      {
-        id: Identifier.ascending("tool"),
-        scope: "Quality",
-        goal: `Inspect tests, risks, gaps, and architectural weak spots relevant to: ${query}`,
-        agent: "explore",
-      },
-    ]
+    const count = Math.min(plan.requirements.primary, SCOPES.length)
+    const rows = SCOPES.slice(0, count).map((item) => ({
+      id: Identifier.ascending("tool"),
+      scope: item.scope,
+      goal: item.goal(plan.query),
+      agent: item.agent,
+    }))
     return rows.map((item) => ({
       row: work(item.id, "primary", item.scope, item.goal, item.agent, plan.root_session_id, plan.id),
       task: {
@@ -816,7 +850,7 @@ export namespace SessionCoordinator {
             mode: "analysis",
             status: "planned",
             query: input.query,
-            requirements: PLAN_REQUIREMENTS,
+            requirements: requirements(input.query),
             summary: null,
             metadata: null,
             time_created: time,
@@ -869,11 +903,6 @@ export namespace SessionCoordinator {
         return {
           prompt: strip(input.prompt),
           work_id: tag.id,
-          format: {
-            type: "json_schema" as const,
-            schema: reportSchema(),
-            retryCount: 2,
-          },
         }
       }
       const id = Identifier.ascending("tool")
@@ -917,11 +946,6 @@ export namespace SessionCoordinator {
           }),
         ),
         work_id: id,
-        format: {
-          type: "json_schema" as const,
-          schema: reportSchema(),
-          retryCount: 2,
-        },
       }
     },
   )
@@ -1433,30 +1457,34 @@ export namespace SessionCoordinator {
     const snap = await refresh({ session_id: input.session_id })
     if (!snap.plan || !snap.ready) return
     const rows = accepted(snap.claims)
-    const risks = [...new Set(snap.works.flatMap((item) => item.metadata?.risks ?? []))].slice(0, 8)
+    const findingTokens = new Set(rows.flatMap((r) => r.key.split(" ")))
+    const allRisks = [...new Set(snap.works.flatMap((item) => item.metadata?.risks ?? []))]
+    const risks = allRisks.filter((risk) => {
+      const tokens = normalize(risk).split(" ")
+      return !tokens.some((t) => findingTokens.has(t))
+    }).slice(0, 5)
+    const findings = rows
+      .slice(0, 10)
+      .map((item) => `- **${item.topic}**: ${item.row.statement}`)
     const scopes = snap.works
       .filter((item) => ["completed", "verified", "resolved"].includes(item.status))
       .filter((item) => item.role !== "reconciler")
-      .map((item) => `- ${item.scope}: ${item.metadata?.summary ?? item.goal}`)
-      .slice(0, 6)
-    const lines = rows
-      .slice(0, 8)
-      .map((item) => `- ${item.topic}: ${item.row.statement} (${item.row.evidence.slice(0, 2).join(", ")})`)
-    const head =
-      snap.plan.query.trim() && rows[0]
-        ? `${rows[0].row.statement}`
-        : scopes[0]?.replace(/^- [^:]+:\s*/, "") ?? "Coordinator analysis completed."
+      .map((item) => {
+        const text = item.metadata?.summary ?? item.goal
+        return `- **${item.scope}**: ${text.replace(/\/home\/[^ ,]*/g, (m) => m.split("/").pop() ?? m)}`
+      })
+      .slice(0, 4)
+    const head = snap.plan.query.trim() ? snap.plan.query : "Analysis complete"
     return [
       head,
       "",
-      lines.length ? "Accepted findings:" : undefined,
-      ...lines,
+      findings.length ? "**Findings**" : undefined,
+      ...findings,
       risks.length ? "" : undefined,
-      risks.length ? "Risks:" : undefined,
+      risks.length ? "**Risks**" : undefined,
       ...risks.map((item) => `- ${item}`),
       scopes.length ? "" : undefined,
-      scopes.length ? "Coordination summary:" : undefined,
-      `- ${snap.summary}`,
+      scopes.length ? "**Scopes analyzed**" : undefined,
       ...scopes,
     ]
       .filter(Boolean)
@@ -1473,11 +1501,11 @@ export namespace SessionCoordinator {
         conflicts: [],
         counts: {
           primary: {
-            required: PLAN_REQUIREMENTS.primary,
+            required: DEFAULT_PRIMARY,
             completed: 0,
           },
           verifier: {
-            required: PLAN_REQUIREMENTS.verifier,
+            required: DEFAULT_VERIFIER,
             completed: 0,
           },
         },

@@ -88,7 +88,6 @@ describe("session coordinator", () => {
         })
 
         expect(bound.prompt).not.toContain("coordination-workstream")
-        expect(bound.format?.type).toBe("json_schema")
 
         await SessionCoordinator.complete({
           session_id: child.id,

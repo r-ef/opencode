@@ -117,26 +117,23 @@ export function Home() {
         <box flexGrow={1} minHeight={0} />
         <Toast />
       </box>
-      <box paddingTop={1} paddingBottom={1} paddingLeft={2} paddingRight={2} flexDirection="row" flexShrink={0} gap={2}>
+      <box paddingTop={0} paddingBottom={1} paddingLeft={2} paddingRight={2} flexDirection="row" flexShrink={0} gap={1}>
         <text fg={theme.textMuted}>{directory()}</text>
+        <box flexGrow={1} />
         <box gap={1} flexDirection="row" flexShrink={0}>
           <Show when={mcp()}>
-            <text fg={theme.text}>
+            <text fg={theme.textMuted}>
               <Switch>
                 <Match when={mcpError()}>
-                  <span style={{ fg: theme.error }}>⊙ </span>
+                  <span style={{ fg: theme.error }}>⊙</span>
                 </Match>
                 <Match when={true}>
-                  <span style={{ fg: connectedMcpCount() > 0 ? theme.success : theme.textMuted }}>⊙ </span>
+                  <span style={{ fg: connectedMcpCount() > 0 ? theme.success : theme.textMuted }}>⊙</span>
                 </Match>
               </Switch>
-              {connectedMcpCount()} MCP
+              {" "}{connectedMcpCount()} mcp
             </text>
-            <text fg={theme.textMuted}>/status</text>
           </Show>
-        </box>
-        <box flexGrow={1} />
-        <box flexShrink={0}>
           <text fg={theme.textMuted}>{Installation.VERSION}</text>
         </box>
       </box>

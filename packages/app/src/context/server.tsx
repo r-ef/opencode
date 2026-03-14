@@ -13,13 +13,21 @@ export function normalizeServerUrl(input: string) {
   const trimmed = input.trim()
   if (!trimmed) return
   const withProtocol = /^https?:\/\//.test(trimmed) ? trimmed : `http://${trimmed}`
-  return withProtocol.replace(/\/+$/, "")
+  if (!URL.canParse(withProtocol)) return withProtocol.replace(/\/+$/, "")
+  const url = new URL(withProtocol)
+  url.username = ""
+  url.password = ""
+  return url.toString().replace(/\/+$/, "")
 }
 
 export function serverName(conn?: ServerConnection.Any, ignoreDisplayName = false) {
   if (!conn) return ""
   if (conn.displayName && !ignoreDisplayName) return conn.displayName
-  return conn.http.url.replace(/^https?:\/\//, "").replace(/\/+$/, "")
+  if (!URL.canParse(conn.http.url)) return conn.http.url.replace(/^https?:\/\//, "").replace(/\/+$/, "")
+  const url = new URL(conn.http.url)
+  url.username = ""
+  url.password = ""
+  return url.toString().replace(/^https?:\/\//, "").replace(/\/+$/, "")
 }
 
 function projectsKey(key: ServerConnection.Key) {

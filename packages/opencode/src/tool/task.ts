@@ -715,7 +715,6 @@ export const TaskTool = Tool.define("task", async (ctx) => {
             agent: agent.name,
             tools: toolset(config, allow),
             permission,
-            format: bound.format,
             parts: promptParts,
           }),
         )

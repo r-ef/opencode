@@ -373,6 +373,31 @@ export function Session() {
   }
 
   const local = useLocal()
+  const state = createMemo(() => sync.data.session_status[route.sessionID] ?? { type: "idle" as const })
+  const pulse = createMemo(() => contentWidth() >= 24 && (state().type === "busy" || state().type === "retry"))
+  const tone = createMemo(() => {
+    if (state().type === "retry") return theme.error
+    return local.agent.color(local.agent.current().name)
+  })
+  const frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+  const [tick, setTick] = createSignal(0)
+
+  createEffect(() => {
+    if (!pulse()) {
+      setTick(0)
+      return
+    }
+    if (!animationsEnabled()) {
+      setTick(4)
+      return
+    }
+    const timer = setInterval(() => {
+      setTick((value) => (value + 1) % frames.length)
+    }, 80)
+    onCleanup(() => clearInterval(timer))
+  })
+
+  const meter = createMemo(() => frames[tick()] ?? frames[0])
 
   function moveFirstChild() {
     const next = subagents()[0]
@@ -1176,7 +1201,8 @@ export function Session() {
       }}
     >
       <box flexDirection="row">
-        <box flexGrow={1} paddingBottom={1} paddingTop={1} paddingLeft={2} paddingRight={2} gap={1}>
+        <box flexGrow={1} paddingBottom={1} paddingTop={0} paddingLeft={2} paddingRight={2} gap={1}>
+          <box height={0} flexShrink={0} />
           <Show when={session()}>
             <Show when={showHeader() && (!sidebarVisible() || !wide())}>
               <Header />
@@ -1228,13 +1254,13 @@ export function Session() {
                             flexShrink={0}
                             border={["left"]}
                             customBorderChars={SplitBorder.customBorderChars}
-                            borderColor={theme.backgroundPanel}
+                            borderColor={theme.borderSubtle}
                           >
                             <box
                               paddingTop={1}
                               paddingBottom={1}
                               paddingLeft={2}
-                              backgroundColor={hover() ? theme.backgroundElement : theme.backgroundPanel}
+                              backgroundColor={hover() ? theme.backgroundElement : undefined}
                             >
                               <text fg={theme.textMuted}>{revert()!.reverted.length} message reverted</text>
                               <text fg={theme.textMuted}>
@@ -1295,6 +1321,11 @@ export function Session() {
                 )}
               </For>
             </scrollbox>
+            <Show when={pulse()}>
+              <box flexShrink={0} paddingLeft={0}>
+                <text fg={tone()}>{meter()} working</text>
+              </box>
+            </Show>
             <box flexShrink={0}>
               <Show when={permissions().length > 0}>
                 <PermissionPrompt request={permissions()[0]} />
@@ -1400,7 +1431,7 @@ function UserMessage(props: {
             paddingTop={1}
             paddingBottom={1}
             paddingLeft={2}
-            backgroundColor={hover() ? theme.backgroundElement : theme.backgroundPanel}
+            backgroundColor={hover() ? theme.backgroundElement : undefined}
             flexShrink={0}
           >
             <text fg={theme.text}>{body()}</text>
@@ -1508,7 +1539,6 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
           paddingBottom={1}
           paddingLeft={2}
           marginTop={1}
-          backgroundColor={theme.backgroundPanel}
           customBorderChars={SplitBorder.customBorderChars}
           borderColor={theme.error}
         >
@@ -1533,7 +1563,7 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
                       : local.agent.color(props.message.agent),
                 }}
               >
-                ▣{" "}
+                ◆{" "}
               </span>{" "}
               <span style={{ fg: theme.text }}>{Locale.titlecase(props.message.mode)}</span>
               <span style={{ fg: theme.textMuted }}> · {props.message.modelID}</span>
@@ -1884,9 +1914,9 @@ function BlockTool(props: {
       paddingLeft={2}
       marginTop={1}
       gap={1}
-      backgroundColor={hover() ? theme.backgroundMenu : theme.backgroundPanel}
+      backgroundColor={hover() ? theme.backgroundElement : undefined}
       customBorderChars={SplitBorder.customBorderChars}
-      borderColor={theme.background}
+      borderColor={theme.borderSubtle}
       onMouseOver={() => props.onClick && setHover(true)}
       onMouseOut={() => setHover(false)}
       onMouseUp={() => {
@@ -2154,7 +2184,7 @@ function Task(props: ToolProps<typeof TaskTool>) {
 
   const current = createMemo(() => tools().findLast((x) => (x.state as any).title))
 
-  const line = createMemo(() => {
+  const rawLine = createMemo(() => {
     const msg = messages().findLast((x) => x.role === "assistant")
     if (!msg) return
     const parts = sync.data.part[msg.id] ?? []
@@ -2181,6 +2211,16 @@ function Task(props: ToolProps<typeof TaskTool>) {
       .at(-1)
       ?.text?.trim()
     if (text) return `↳ ${Locale.truncate(text.replace(/\s+/g, " "), 100)}`
+  })
+  const [line, setLine] = createSignal(rawLine())
+  createEffect(() => {
+    const val = rawLine()
+    if (!spin()) {
+      setLine(val)
+      return
+    }
+    const timer = setTimeout(() => setLine(val), 500)
+    onCleanup(() => clearTimeout(timer))
   })
 
   const duration = createMemo(() => {
@@ -2330,7 +2370,7 @@ function TaskBranch(props: ToolProps<typeof TaskBranchTool>) {
   )
   const spin = createMemo(() => props.part.state.status === "running" || (meta().background === true && busy()))
 
-  const line = createMemo(() => {
+  const rawLine = createMemo(() => {
     for (const item of rows()) {
       const msg = item.messages.findLast((msg) => msg.role === "assistant")
       if (!msg) continue
@@ -2345,6 +2385,16 @@ function TaskBranch(props: ToolProps<typeof TaskBranchTool>) {
       if (tool.state.status === "running" && tool.state.title) return `↳ ${item.name}: ${tool.tool} ${tool.state.title}`
       return `↳ ${item.name}: ${tool.tool} running`
     }
+  })
+  const [line, setLine] = createSignal(rawLine())
+  createEffect(() => {
+    const val = rawLine()
+    if (!spin()) {
+      setLine(val)
+      return
+    }
+    const timer = setTimeout(() => setLine(val), 500)
+    onCleanup(() => clearTimeout(timer))
   })
 
   const [seen, setSeen] = createSignal(false)

@@ -3,7 +3,19 @@ import { Clipboard } from "@tui/util/clipboard"
 import { Selection } from "@tui/util/selection"
 import { MouseButton, TextAttributes } from "@opentui/core"
 import { RouteProvider, useRoute } from "@tui/context/route"
-import { Switch, Match, createEffect, untrack, ErrorBoundary, createSignal, onMount, batch, Show, on } from "solid-js"
+import {
+  Switch,
+  Match,
+  createEffect,
+  untrack,
+  ErrorBoundary,
+  createSignal,
+  onMount,
+  onCleanup,
+  batch,
+  Show,
+  on,
+} from "solid-js"
 import { win32DisableProcessedInput, win32FlushInputBuffer, win32InstallCtrlCGuard } from "./win32"
 import { Installation } from "@/installation"
 import { Flag } from "@/flag/flag"
@@ -32,7 +44,7 @@ import { DialogAlert } from "./ui/dialog-alert"
 import { ToastProvider, useToast } from "./ui/toast"
 import { ExitProvider, useExit } from "./context/exit"
 import { Session as SessionApi } from "@/session"
-import { TuiEvent } from "./event"
+import { TuiEvent, TuiLocal } from "./event"
 import { KVProvider, useKV } from "./context/kv"
 import { Provider } from "@/provider/provider"
 import { ArgsProvider, useArgs, type Args } from "./context/args"
@@ -120,6 +132,11 @@ export function tui(input: {
     win32DisableProcessedInput()
 
     const mode = await getTerminalBackgroundColor()
+    const paste = Clipboard.handler({
+      paste(content) {
+        TuiLocal.clipboard.emit(content)
+      },
+    })
 
     // Re-clear after getTerminalBackgroundColor() — setRawMode(false) restores
     // the original console mode which re-enables ENABLE_PROCESSED_INPUT.
@@ -188,6 +205,7 @@ export function tui(input: {
         useKittyKeyboard: {},
         autoFocus: false,
         openConsoleOnError: false,
+        prependInputHandlers: [paste],
         consoleOptions: {
           keyBindings: [{ name: "y", ctrl: true, action: "copy-selection" }],
           onCopySelection: (text) => {
@@ -759,6 +777,7 @@ function App() {
     <box
       width={dimensions().width}
       height={dimensions().height}
+      flexDirection="column"
       backgroundColor={theme.background}
       onMouseDown={(evt) => {
         if (!Flag.OPENCODE_EXPERIMENTAL_DISABLE_COPY_ON_SELECT) return
@@ -770,17 +789,19 @@ function App() {
       }}
       onMouseUp={Flag.OPENCODE_EXPERIMENTAL_DISABLE_COPY_ON_SELECT ? undefined : () => Selection.copy(renderer, toast)}
     >
-      <Switch>
-        <Match when={route.data.type === "home"}>
-          <Home />
-        </Match>
-        <Match when={route.data.type === "tower"}>
-          <ControlTower />
-        </Match>
-        <Match when={route.data.type === "session"}>
-          <Session />
-        </Match>
-      </Switch>
+      <box flexGrow={1} minHeight={0}>
+        <Switch>
+          <Match when={route.data.type === "home"}>
+            <Home />
+          </Match>
+          <Match when={route.data.type === "tower"}>
+            <ControlTower />
+          </Match>
+          <Match when={route.data.type === "session"}>
+            <Session />
+          </Match>
+        </Switch>
+      </box>
     </box>
   )
 }
@@ -867,3 +888,7 @@ function ErrorComponent(props: {
     </box>
   )
 }
+  onMount(() => {
+    Clipboard.mode(true)
+    onCleanup(() => Clipboard.mode(false))
+  })

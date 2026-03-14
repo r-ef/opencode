@@ -7,6 +7,76 @@ import path from "path"
 import { Filesystem } from "../../../../util/filesystem"
 import { Process } from "../../../../util/process"
 
+const IMAGE_MIME = ["image/png", "image/jpeg", "image/webp", "image/gif", "image/svg+xml"]
+const PLAIN_MIME = ["text/plain;charset=utf-8", "text/plain"]
+
+function base64(text: string) {
+  return Buffer.from(text).toString("base64")
+}
+
+function decode(text?: string) {
+  if (!text) return
+  return Buffer.from(text, "base64").toString("utf8")
+}
+
+function wrap(seq: string) {
+  if (!process.env["TMUX"] && !process.env["STY"]) return seq
+  return `\x1bPtmux;\x1b${seq}\x1b\\`
+}
+
+function write(seq: string): void {
+  if (!process.stdout.isTTY) return
+  process.stdout.write(wrap(seq))
+}
+
+function choose(list: string[]) {
+  for (const mime of IMAGE_MIME) {
+    if (list.includes(mime)) return mime
+  }
+  const image = list.find((mime) => mime.startsWith("image/"))
+  if (image) return image
+  for (const mime of PLAIN_MIME) {
+    const found = list.find((item) => item.startsWith(mime))
+    if (found) return found
+  }
+}
+
+function query(
+  opts: { mime: string; auth?: string; key?: "pw" | "password"; name?: string },
+  send: (seq: string) => void = write,
+) {
+  const meta = [`type=read`]
+  if (opts.auth) meta.push(`${opts.key ?? "pw"}=${opts.auth}`)
+  if (opts.name) meta.push(`name=${base64(opts.name)}`)
+  send(`\x1b]5522;${meta.join(":")};${base64(opts.mime)}\x1b\\`)
+}
+
+function parse(seq: string) {
+  const end = seq.endsWith("\x1b\\") ? -2 : seq.endsWith("\x07") ? -1 : 0
+  if (!seq.startsWith("\x1b]5522;") || !end) return
+  const body = seq.slice(7, end)
+  const cut = body.indexOf(";")
+  const head = cut === -1 ? body : body.slice(0, cut)
+  const data = cut === -1 ? "" : body.slice(cut + 1)
+  const meta = new Map(
+    head.split(":").map((item) => {
+      const cut = item.indexOf("=")
+      if (cut === -1) return [item, ""]
+      return [item.slice(0, cut), item.slice(cut + 1)]
+    }),
+  )
+  const type = meta.get("type")
+  if (!type) return
+  return {
+    type,
+    status: meta.get("status"),
+    mime: decode(meta.get("mime")),
+    auth: meta.get("pw") ?? meta.get("password"),
+    key: meta.has("pw") ? ("pw" as const) : meta.has("password") ? ("password" as const) : undefined,
+    data: data || undefined,
+  }
+}
+
 /**
  * Writes text to clipboard via OSC 52 escape sequence.
  * This allows clipboard operations to work over SSH by having
@@ -14,17 +84,114 @@ import { Process } from "../../../../util/process"
  */
 function writeOsc52(text: string): void {
   if (!process.stdout.isTTY) return
-  const base64 = Buffer.from(text).toString("base64")
-  const osc52 = `\x1b]52;c;${base64}\x07`
-  const passthrough = process.env["TMUX"] || process.env["STY"]
-  const sequence = passthrough ? `\x1bPtmux;\x1b${osc52}\x1b\\` : osc52
-  process.stdout.write(sequence)
+  write(`\x1b]52;c;${base64(text)}\x07`)
 }
 
 export namespace Clipboard {
   export interface Content {
     data: string
     mime: string
+  }
+
+  export function imageWarning() {
+    const remote = !!(process.env["SSH_CONNECTION"] || process.env["SSH_CLIENT"] || process.env["SSH_TTY"])
+    if (!remote) return
+
+    const term = process.env["TERM_PROGRAM"]?.toLowerCase()
+    const tmux = !!(process.env["TMUX"] || process.env["STY"] || process.env["TERM"]?.includes("tmux"))
+
+    if (term === "ghostty") {
+      if (tmux) {
+        return "Remote image paste is not available in this Ghostty SSH/tmux session. tmux must allow passthrough and the outer terminal must support MIME clipboard paste. Use an image file path or the web UI instead."
+      }
+      return "Remote image paste is not available in this Ghostty SSH session. Use an image file path or the web UI instead."
+    }
+
+    if (tmux) {
+      return "No image data reached the remote TUI. Remote image paste needs terminal MIME clipboard support and tmux passthrough (`set -g allow-passthrough on`). Use an image file path or the web UI instead."
+    }
+
+    return "No image data reached the remote TUI. Remote image paste depends on terminal clipboard MIME support. Use an image file path or the web UI instead."
+  }
+
+  export function mode(on: boolean) {
+    write(`\x1b[?5522${on ? "h" : "l"}`)
+  }
+
+  export function handler(opts: { paste: (content: Content) => void; write?: (seq: string) => void }) {
+    let state:
+      | {
+          mode: "list"
+          auth?: string
+          key?: "pw" | "password"
+          list: string[]
+        }
+      | {
+          mode: "data"
+          mime: string
+          data: string[]
+        }
+      | undefined
+
+    const send = opts.write ?? write
+
+    return (seq: string) => {
+      const pkt = parse(seq)
+      if (!pkt || pkt.type !== "read") return false
+
+      if (!state && pkt.status === "OK" && pkt.auth) {
+        state = {
+          mode: "list",
+          auth: pkt.auth,
+          key: pkt.key,
+          list: [],
+        }
+        return true
+      }
+
+      if (!state) return true
+
+      if (state.mode === "list") {
+        if (pkt.status === "DATA" && pkt.mime) {
+          state.list.push(pkt.mime)
+          return true
+        }
+        if (pkt.status !== "DONE") {
+          if (pkt.status === "ERROR") state = undefined
+          return true
+        }
+        const mime = choose(state.list)
+        const auth = state.auth
+        const key = state.key
+        state = undefined
+        if (!mime) return true
+        query({ mime, auth, key, name: "Paste event" }, send)
+        state = {
+          mode: "data",
+          mime,
+          data: [],
+        }
+        return true
+      }
+
+      if (pkt.status === "DATA" && pkt.data) {
+        state.data.push(pkt.data)
+        return true
+      }
+      if (pkt.status === "DONE") {
+        opts.paste({
+          mime: state.mime,
+          data: state.data.join(""),
+        })
+        state = undefined
+        return true
+      }
+      if (pkt.status === "ERROR") {
+        state = undefined
+        return true
+      }
+      return true
+    }
   }
 
   export async function read(): Promise<Content | undefined> {

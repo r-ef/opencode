@@ -4,6 +4,13 @@ import z from "zod"
 
 export const TuiEvent = {
   PromptAppend: BusEvent.define("tui.prompt.append", z.object({ text: z.string() })),
+  ClipboardPaste: BusEvent.define(
+    "tui.clipboard.paste",
+    z.object({
+      mime: z.string(),
+      data: z.string(),
+    }),
+  ),
   CommandExecute: BusEvent.define(
     "tui.command.execute",
     z.object({
@@ -51,4 +58,20 @@ export const TuiEvent = {
       sessionID: z.string().regex(/^ses/).describe("Session ID to navigate to"),
     }),
   ),
+}
+
+type ClipboardPaste = z.output<typeof TuiEvent.ClipboardPaste.properties>
+
+const clipboard = new Set<(input: ClipboardPaste) => void>()
+
+export const TuiLocal = {
+  clipboard: {
+    emit(input: ClipboardPaste) {
+      for (const fn of clipboard) fn(input)
+    },
+    on(fn: (input: ClipboardPaste) => void) {
+      clipboard.add(fn)
+      return () => clipboard.delete(fn)
+    },
+  },
 }

@@ -11,6 +11,7 @@ import { useServer } from "@/context/server"
 import { monoFontFamily, useSettings } from "@/context/settings"
 import type { LocalPTY } from "@/context/terminal"
 import { disposeIfDisposable, getHoveredLinkText, setOptionIfSupported } from "@/utils/runtime-adapters"
+import { setSocketAuth } from "@/utils/server"
 import { terminalWriter } from "@/utils/terminal-writer"
 
 const TOGGLE_TERMINAL_ID = "terminal.toggle"
@@ -41,7 +42,27 @@ type TerminalColors = {
   foreground: string
   cursor: string
   selectionBackground: string
-}
+} & Partial<
+  Record<
+    | "black"
+    | "red"
+    | "green"
+    | "yellow"
+    | "blue"
+    | "magenta"
+    | "cyan"
+    | "white"
+    | "brightBlack"
+    | "brightRed"
+    | "brightGreen"
+    | "brightYellow"
+    | "brightBlue"
+    | "brightMagenta"
+    | "brightCyan"
+    | "brightWhite",
+    string
+  >
+>
 
 const DEFAULT_TERMINAL_COLORS: Record<"light" | "dark", TerminalColors> = {
   light: {
@@ -49,12 +70,44 @@ const DEFAULT_TERMINAL_COLORS: Record<"light" | "dark", TerminalColors> = {
     foreground: "#211e1e",
     cursor: "#211e1e",
     selectionBackground: withAlpha("#211e1e", 0.2),
+    black: "#211e1e",
+    red: "#c93c37",
+    green: "#1a8f3a",
+    yellow: "#8d6708",
+    blue: "#165dff",
+    magenta: "#8d47aa",
+    cyan: "#0d7f87",
+    white: "#d6d2d2",
+    brightBlack: "#817777",
+    brightRed: "#e5534b",
+    brightGreen: "#2da44e",
+    brightYellow: "#bf8700",
+    brightBlue: "#0969da",
+    brightMagenta: "#a246b8",
+    brightCyan: "#1b9aaa",
+    brightWhite: "#211e1e",
   },
   dark: {
     background: "#191515",
     foreground: "#d4d4d4",
     cursor: "#d4d4d4",
     selectionBackground: withAlpha("#d4d4d4", 0.25),
+    black: "#191515",
+    red: "#ff6b68",
+    green: "#3fb950",
+    yellow: "#d29922",
+    blue: "#58a6ff",
+    magenta: "#bc8cff",
+    cyan: "#39c5cf",
+    white: "#bcb5b5",
+    brightBlack: "#8b7f7f",
+    brightRed: "#ff938a",
+    brightGreen: "#56d364",
+    brightYellow: "#e3b341",
+    brightBlue: "#79c0ff",
+    brightMagenta: "#d2a8ff",
+    brightCyan: "#56d4dd",
+    brightWhite: "#f5eeee",
   },
 }
 
@@ -229,6 +282,22 @@ export const Terminal = (props: TerminalProps) => {
       foreground: text,
       cursor: text,
       selectionBackground,
+      black: resolved["background-base"] ?? fallback.black,
+      red: resolved["text-on-critical-base"] ?? resolved["border-critical-selected"] ?? fallback.red,
+      green: resolved["text-on-success-base"] ?? resolved["border-success-selected"] ?? fallback.green,
+      yellow: resolved["text-on-warning-strong"] ?? resolved["border-warning-selected"] ?? fallback.yellow,
+      blue: resolved["text-interactive-base"] ?? resolved["border-interactive-selected"] ?? fallback.blue,
+      magenta: resolved["icon-info-active"] ?? resolved["border-info-selected"] ?? fallback.magenta,
+      cyan: resolved["icon-info-base"] ?? resolved["border-info-selected"] ?? fallback.cyan,
+      white: resolved["text-base"] ?? fallback.white,
+      brightBlack: resolved["text-weaker"] ?? resolved["text-weak"] ?? fallback.brightBlack,
+      brightRed: resolved["text-on-critical-strong"] ?? resolved["border-critical-selected"] ?? fallback.brightRed,
+      brightGreen: resolved["text-on-success-strong"] ?? resolved["border-success-selected"] ?? fallback.brightGreen,
+      brightYellow: resolved["text-on-warning-strong"] ?? resolved["border-warning-selected"] ?? fallback.brightYellow,
+      brightBlue: resolved["text-interactive-base"] ?? resolved["border-interactive-selected"] ?? fallback.brightBlue,
+      brightMagenta: resolved["icon-info-active"] ?? resolved["border-info-selected"] ?? fallback.brightMagenta,
+      brightCyan: resolved["text-on-info-strong"] ?? resolved["border-info-selected"] ?? fallback.brightCyan,
+      brightWhite: resolved["text-strong"] ?? text,
     }
   }
 
@@ -451,8 +520,7 @@ export const Terminal = (props: TerminalProps) => {
       url.searchParams.set("directory", sdk.directory)
       url.searchParams.set("cursor", String(start !== undefined ? start : restore ? -1 : 0))
       url.protocol = url.protocol === "https:" ? "wss:" : "ws:"
-      url.username = server.current?.http.username ?? ""
-      url.password = server.current?.http.password ?? ""
+      setSocketAuth(url, server.current?.http)
 
       const socket = new WebSocket(url)
       socket.binaryType = "arraybuffer"

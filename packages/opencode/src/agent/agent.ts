@@ -129,6 +129,7 @@ export namespace Agent {
       },
       explore: {
         name: "explore",
+        steps: 20,
         permission: PermissionNext.merge(
           defaults,
           PermissionNext.fromConfig({
