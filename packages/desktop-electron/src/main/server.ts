@@ -78,7 +78,7 @@ export async function checkHealth(url: string, password?: string | null): Promis
 
   const headers = new Headers()
   if (password) {
-    const auth = Buffer.from(`opencode:${password}`).toString("base64")
+    const auth = Buffer.from(`selene:${password}`).toString("base64")
     headers.set("authorization", `Basic ${auth}`)
   }
 

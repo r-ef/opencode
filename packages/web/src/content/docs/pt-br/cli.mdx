@@ -1,30 +1,30 @@
 ---
 title: CLI
-description: Opções e comandos da CLI do opencode.
+description: Opções e comandos da CLI do selene.
 ---
 
 import { Tabs, TabItem } from "@astrojs/starlight/components"
 
-A CLI do opencode, por padrão, inicia o [TUI](/docs/tui) quando executada sem argumentos.
+A CLI do selene, por padrão, inicia o [TUI](/docs/tui) quando executada sem argumentos.
 
 ```bash
-opencode
+selene
 ```
 
-Mas também aceita comandos conforme documentado nesta página. Isso permite que você interaja com o opencode programaticamente.
+Mas também aceita comandos conforme documentado nesta página. Isso permite que você interaja com o selene programaticamente.
 
 ```bash
-opencode run "Explain how closures work in JavaScript"
+selene run "Explain how closures work in JavaScript"
 ```
 
 ---
 
 ### tui
 
-Inicie a interface de usuário do terminal do opencode.
+Inicie a interface de usuário do terminal do selene.
 
 ```bash
-opencode [project]
+selene [project]
 ```
 
 #### Opções
@@ -44,36 +44,36 @@ opencode [project]
 
 ## Comandos
 
-A CLI do opencode também possui os seguintes comandos.
+A CLI do selene também possui os seguintes comandos.
 
 ---
 
 ### agent
 
-Gerencie agentes para o opencode.
+Gerencie agentes para o selene.
 
 ```bash
-opencode agent [command]
+selene agent [command]
 ```
 
 ---
 
 ### attach
 
-Anexe um terminal a um servidor backend do opencode já em execução, iniciado via comandos `serve` ou `web`.
+Anexe um terminal a um servidor backend do selene já em execução, iniciado via comandos `serve` ou `web`.
 
 ```bash
-opencode attach [url]
+selene attach [url]
 ```
 
-Isso permite usar o TUI com um backend opencode remoto. Por exemplo:
+Isso permite usar o TUI com um backend selene remoto. Por exemplo:
 
 ```bash
 # Inicie o servidor backend para acesso web/mobile
-opencode web --port 4096 --hostname 0.0.0.0
+selene web --port 4096 --hostname 0.0.0.0
 
 # Em outro terminal, anexe o TUI ao backend em execução
-opencode attach http://10.20.30.40:4096
+selene attach http://10.20.30.40:4096
 ```
 
 #### Opções
@@ -90,7 +90,7 @@ opencode attach http://10.20.30.40:4096
 Crie um novo agente com configuração personalizada.
 
 ```bash
-opencode agent create
+selene agent create
 ```
 
 Este comando irá guiá-lo na criação de um novo agente com um prompt de sistema personalizado e configuração de ferramentas.
@@ -102,7 +102,7 @@ Este comando irá guiá-lo na criação de um novo agente com um prompt de siste
 Liste todos os agentes disponíveis.
 
 ```bash
-opencode agent list
+selene agent list
 ```
 
 ---
@@ -112,20 +112,20 @@ opencode agent list
 Comando para gerenciar credenciais e login para provedores.
 
 ```bash
-opencode auth [command]
+selene auth [command]
 ```
 
 ---
 
 #### login
 
-O opencode é alimentado pela lista de provedores em [Models.dev](https://models.dev), então você pode usar `opencode auth login` para configurar chaves de API para qualquer provedor que você gostaria de usar. Isso é armazenado em `~/.local/share/opencode/auth.json`.
+O selene é alimentado pela lista de provedores em [Models.dev](https://models.dev), então você pode usar `selene auth login` para configurar chaves de API para qualquer provedor que você gostaria de usar. Isso é armazenado em `~/.local/share/selene/auth.json`.
 
 ```bash
-opencode auth login
+selene auth login
 ```
 
-Quando o opencode é iniciado, ele carrega os provedores do arquivo de credenciais. E se houver chaves definidas em seus ambientes ou em um arquivo `.env` em seu projeto.
+Quando o selene é iniciado, ele carrega os provedores do arquivo de credenciais. E se houver chaves definidas em seus ambientes ou em um arquivo `.env` em seu projeto.
 
 ---
 
@@ -134,13 +134,13 @@ Quando o opencode é iniciado, ele carrega os provedores do arquivo de credencia
 Lista todos os provedores autenticados conforme armazenado no arquivo de credenciais.
 
 ```bash
-opencode auth list
+selene auth list
 ```
 
 Ou a versão curta.
 
 ```bash
-opencode auth ls
+selene auth ls
 ```
 
 ---
@@ -150,7 +150,7 @@ opencode auth ls
 Desconecta você de um provedor limpando-o do arquivo de credenciais.
 
 ```bash
-opencode auth logout
+selene auth logout
 ```
 
 ---
@@ -160,7 +160,7 @@ opencode auth logout
 Gerencie o agente do GitHub para automação de repositórios.
 
 ```bash
-opencode github [command]
+selene github [command]
 ```
 
 ---
@@ -170,7 +170,7 @@ opencode github [command]
 Instale o agente do GitHub em seu repositório.
 
 ```bash
-opencode github install
+selene github install
 ```
 
 Isso configura o fluxo de trabalho necessário do GitHub Actions e o guia pelo processo de configuração. [Saiba mais](/docs/github).
@@ -182,7 +182,7 @@ Isso configura o fluxo de trabalho necessário do GitHub Actions e o guia pelo p
 Execute o agente do GitHub. Isso é tipicamente usado em GitHub Actions.
 
 ```bash
-opencode github run
+selene github run
 ```
 
 ##### Opções
@@ -199,7 +199,7 @@ opencode github run
 Gerencie servidores do Model Context Protocol.
 
 ```bash
-opencode mcp [command]
+selene mcp [command]
 ```
 
 ---
@@ -209,7 +209,7 @@ opencode mcp [command]
 Adicione um servidor MCP à sua configuração.
 
 ```bash
-opencode mcp add
+selene mcp add
 ```
 
 Este comando irá guiá-lo na adição de um servidor MCP local ou remoto.
@@ -221,13 +221,13 @@ Este comando irá guiá-lo na adição de um servidor MCP local ou remoto.
 Liste todos os servidores MCP configurados e seu status de conexão.
 
 ```bash
-opencode mcp list
+selene mcp list
 ```
 
 Ou use a versão curta.
 
 ```bash
-opencode mcp ls
+selene mcp ls
 ```
 
 ---
@@ -237,7 +237,7 @@ opencode mcp ls
 Autentique-se com um servidor MCP habilitado para OAuth.
 
 ```bash
-opencode mcp auth [name]
+selene mcp auth [name]
 ```
 
 Se você não fornecer um nome de servidor, será solicitado que você selecione entre os servidores disponíveis habilitados para OAuth.
@@ -245,13 +245,13 @@ Se você não fornecer um nome de servidor, será solicitado que você selecione
 Você também pode listar servidores habilitados para OAuth e seu status de autenticação.
 
 ```bash
-opencode mcp auth list
+selene mcp auth list
 ```
 
 Ou use a versão curta.
 
 ```bash
-opencode mcp auth ls
+selene mcp auth ls
 ```
 
 ---
@@ -261,7 +261,7 @@ opencode mcp auth ls
 Remova credenciais OAuth para um servidor MCP.
 
 ```bash
-opencode mcp logout [name]
+selene mcp logout [name]
 ```
 
 ---
@@ -271,7 +271,7 @@ opencode mcp logout [name]
 Depure problemas de conexão OAuth para um servidor MCP.
 
 ```bash
-opencode mcp debug <name>
+selene mcp debug <name>
 ```
 
 ---
@@ -281,7 +281,7 @@ opencode mcp debug <name>
 Liste todos os modelos disponíveis dos provedores configurados.
 
 ```bash
-opencode models [provider]
+selene models [provider]
 ```
 
 Este comando exibe todos os modelos disponíveis entre seus provedores configurados no formato `provider/model`.
@@ -291,7 +291,7 @@ Isso é útil para descobrir o nome exato do modelo a ser usado em [sua configur
 Você pode opcionalmente passar um ID de provedor para filtrar modelos por esse provedor.
 
 ```bash
-opencode models anthropic
+selene models anthropic
 ```
 
 #### Opções
@@ -301,36 +301,36 @@ opencode models anthropic
 | `--refresh` | Atualiza o cache de modelos a partir do models.dev                    |
 | `--verbose` | Use uma saída de modelo mais detalhada (inclui metadados como custos) |
 
-Use a flag `--refresh` para atualizar a lista de modelos em cache. Isso é útil quando novos modelos foram adicionados a um provedor e você deseja vê-los no opencode.
+Use a flag `--refresh` para atualizar a lista de modelos em cache. Isso é útil quando novos modelos foram adicionados a um provedor e você deseja vê-los no selene.
 
 ```bash
-opencode models --refresh
+selene models --refresh
 ```
 
 ---
 
 ### run
 
-Execute o opencode em modo não interativo passando um prompt diretamente.
+Execute o selene em modo não interativo passando um prompt diretamente.
 
 ```bash
-opencode run [message..]
+selene run [message..]
 ```
 
 Isso é útil para scripts, automação ou quando você deseja uma resposta rápida sem iniciar o TUI completo. Por exemplo.
 
-```bash "opencode run"
-opencode run Explique o uso de context em Go
+```bash "selene run"
+selene run Explique o uso de context em Go
 ```
 
-Você também pode se anexar a uma instância em execução do `opencode serve` para evitar tempos de inicialização a frio do servidor MCP em cada execução:
+Você também pode se anexar a uma instância em execução do `selene serve` para evitar tempos de inicialização a frio do servidor MCP em cada execução:
 
 ```bash
 # Inicie um servidor sem cabeça em um terminal
-opencode serve
+selene serve
 
 # Em outro terminal, execute comandos que se anexam a ele
-opencode run --attach http://localhost:4096 "Explique async/await em JavaScript"
+selene run --attach http://localhost:4096 "Explique async/await em JavaScript"
 ```
 
 #### Opções
@@ -347,20 +347,20 @@ opencode run --attach http://localhost:4096 "Explique async/await em JavaScript"
 | `--file`     | `-f`  | Arquivo(s) a serem anexados à mensagem                                        |
 | `--format`   |       | Formato: padrão (formatado) ou json (eventos JSON brutos)                     |
 | `--title`    |       | Título para a sessão (usa o prompt truncado se nenhum valor for fornecido)    |
-| `--attach`   |       | Anexe a um servidor opencode em execução (por exemplo, http://localhost:4096) |
+| `--attach`   |       | Anexe a um servidor selene em execução (por exemplo, http://localhost:4096) |
 | `--port`     |       | Porta para o servidor local (padrão para porta aleatória)                     |
 
 ---
 
 ### serve
 
-Inicie um servidor opencode sem cabeça para acesso à API. Confira a [documentação do servidor](/docs/server) para a interface HTTP completa.
+Inicie um servidor selene sem cabeça para acesso à API. Confira a [documentação do servidor](/docs/server) para a interface HTTP completa.
 
 ```bash
-opencode serve
+selene serve
 ```
 
-Isso inicia um servidor HTTP que fornece acesso à funcionalidade do opencode sem a interface TUI. Defina `OPENCODE_SERVER_PASSWORD` para habilitar a autenticação básica HTTP (o nome de usuário padrão é `opencode`).
+Isso inicia um servidor HTTP que fornece acesso à funcionalidade do selene sem a interface TUI. Defina `SELENE_SERVER_PASSWORD` para habilitar a autenticação básica HTTP (o nome de usuário padrão é `selene`).
 
 #### Opções
 
@@ -375,20 +375,20 @@ Isso inicia um servidor HTTP que fornece acesso à funcionalidade do opencode se
 
 ### session
 
-Gerencie sessões do opencode.
+Gerencie sessões do selene.
 
 ```bash
-opencode session [command]
+selene session [command]
 ```
 
 ---
 
 #### list
 
-Liste todas as sessões do opencode.
+Liste todas as sessões do selene.
 
 ```bash
-opencode session list
+selene session list
 ```
 
 ##### Opções
@@ -402,10 +402,10 @@ opencode session list
 
 ### stats
 
-Mostre o uso de tokens e estatísticas de custo para suas sessões do opencode.
+Mostre o uso de tokens e estatísticas de custo para suas sessões do selene.
 
 ```bash
-opencode stats
+selene stats
 ```
 
 #### Opções
@@ -424,7 +424,7 @@ opencode stats
 Exporte dados da sessão como JSON.
 
 ```bash
-opencode export [sessionID]
+selene export [sessionID]
 ```
 
 Se você não fornecer um ID de sessão, será solicitado que você selecione entre as sessões disponíveis.
@@ -433,30 +433,30 @@ Se você não fornecer um ID de sessão, será solicitado que você selecione en
 
 ### import
 
-Importe dados da sessão de um arquivo JSON ou URL de compartilhamento do opencode.
+Importe dados da sessão de um arquivo JSON ou URL de compartilhamento do selene.
 
 ```bash
-opencode import <file>
+selene import <file>
 ```
 
-Você pode importar de um arquivo local ou de uma URL de compartilhamento do opencode.
+Você pode importar de um arquivo local ou de uma URL de compartilhamento do selene.
 
 ```bash
-opencode import session.json
-opencode import https://opncd.ai/s/abc123
+selene import session.json
+selene import https://opncd.ai/s/abc123
 ```
 
 ---
 
 ### web
 
-Inicie um servidor opencode sem cabeça com uma interface web.
+Inicie um servidor selene sem cabeça com uma interface web.
 
 ```bash
-opencode web
+selene web
 ```
 
-Isso inicia um servidor HTTP e abre um navegador para acessar o opencode através de uma interface web. Defina `OPENCODE_SERVER_PASSWORD` para habilitar a autenticação básica HTTP (o nome de usuário padrão é `opencode`).
+Isso inicia um servidor HTTP e abre um navegador para acessar o selene através de uma interface web. Defina `SELENE_SERVER_PASSWORD` para habilitar a autenticação básica HTTP (o nome de usuário padrão é `selene`).
 
 #### Opções
 
@@ -474,7 +474,7 @@ Isso inicia um servidor HTTP e abre um navegador para acessar o opencode atravé
 Inicie um servidor ACP (Agent Client Protocol).
 
 ```bash
-opencode acp
+selene acp
 ```
 
 Este comando inicia um servidor ACP que se comunica via stdin/stdout usando nd-JSON.
@@ -491,10 +491,10 @@ Este comando inicia um servidor ACP que se comunica via stdin/stdout usando nd-J
 
 ### uninstall
 
-Desinstale o opencode e remova todos os arquivos relacionados.
+Desinstale o selene e remova todos os arquivos relacionados.
 
 ```bash
-opencode uninstall
+selene uninstall
 ```
 
 #### Opções
@@ -510,22 +510,22 @@ opencode uninstall
 
 ### upgrade
 
-Atualiza o opencode para a versão mais recente ou uma versão específica.
+Atualiza o selene para a versão mais recente ou uma versão específica.
 
 ```bash
-opencode upgrade [target]
+selene upgrade [target]
 ```
 
 Para atualizar para a versão mais recente.
 
 ```bash
-opencode upgrade
+selene upgrade
 ```
 
 Para atualizar para uma versão específica.
 
 ```bash
-opencode upgrade v0.1.48
+selene upgrade v0.1.48
 ```
 
 #### Opções
@@ -538,7 +538,7 @@ opencode upgrade v0.1.48
 
 ## Opções Globais
 
-A CLI do opencode aceita as seguintes flags globais.
+A CLI do selene aceita as seguintes flags globais.
 
 | Flag           | Curto | Descrição                               |
 | -------------- | ----- | --------------------------------------- |
@@ -551,34 +551,34 @@ A CLI do opencode aceita as seguintes flags globais.
 
 ## Variáveis de ambiente
 
-O opencode pode ser configurado usando variáveis de ambiente.
+O selene pode ser configurado usando variáveis de ambiente.
 
 | Variável                              | Tipo    | Descrição                                                             |
 | ------------------------------------- | ------- | --------------------------------------------------------------------- |
-| `OPENCODE_AUTO_SHARE`                 | boolean | Compartilhar sessões automaticamente                                  |
-| `OPENCODE_GIT_BASH_PATH`              | string  | Caminho para o executável do Git Bash no Windows                      |
-| `OPENCODE_CONFIG`                     | string  | Caminho para o arquivo de configuração                                |
-| `OPENCODE_CONFIG_DIR`                 | string  | Caminho para o diretório de configuração                              |
-| `OPENCODE_CONFIG_CONTENT`             | string  | Conteúdo de configuração json inline                                  |
-| `OPENCODE_DISABLE_AUTOUPDATE`         | boolean | Desabilitar verificações de atualização automática                    |
-| `OPENCODE_DISABLE_PRUNE`              | boolean | Desabilitar a poda de dados antigos                                   |
-| `OPENCODE_DISABLE_TERMINAL_TITLE`     | boolean | Desabilitar atualizações automáticas do título do terminal            |
-| `OPENCODE_PERMISSION`                 | string  | Configuração de permissões json inline                                |
-| `OPENCODE_DISABLE_DEFAULT_PLUGINS`    | boolean | Desabilitar plugins padrão                                            |
-| `OPENCODE_DISABLE_LSP_DOWNLOAD`       | boolean | Desabilitar downloads automáticos do servidor LSP                     |
-| `OPENCODE_ENABLE_EXPERIMENTAL_MODELS` | boolean | Habilitar modelos experimentais                                       |
-| `OPENCODE_DISABLE_AUTOCOMPACT`        | boolean | Desabilitar compactação automática de contexto                        |
-| `OPENCODE_DISABLE_CLAUDE_CODE`        | boolean | Desabilitar leitura de `.claude` (prompt + habilidades)               |
-| `OPENCODE_DISABLE_CLAUDE_CODE_PROMPT` | boolean | Desabilitar leitura de `~/.claude/CLAUDE.md`                          |
-| `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS` | boolean | Desabilitar carregamento de `.claude/skills`                          |
-| `OPENCODE_DISABLE_MODELS_FETCH`       | boolean | Desabilitar busca de modelos de fontes remotas                        |
-| `OPENCODE_FAKE_VCS`                   | string  | Provedor VCS falso para fins de teste                                 |
-| `OPENCODE_DISABLE_FILETIME_CHECK`     | boolean | Desabilitar verificação de tempo de arquivo para otimização           |
-| `OPENCODE_CLIENT`                     | string  | Identificador do cliente (padrão é `cli`)                             |
-| `OPENCODE_ENABLE_EXA`                 | boolean | Habilitar ferramentas de busca web Exa                                |
-| `OPENCODE_SERVER_PASSWORD`            | string  | Habilitar autenticação básica para `serve`/`web`                      |
-| `OPENCODE_SERVER_USERNAME`            | string  | Substituir nome de usuário de autenticação básica (padrão `opencode`) |
-| `OPENCODE_MODELS_URL`                 | string  | URL personalizada para buscar configuração de modelos                 |
+| `SELENE_AUTO_SHARE`                 | boolean | Compartilhar sessões automaticamente                                  |
+| `SELENE_GIT_BASH_PATH`              | string  | Caminho para o executável do Git Bash no Windows                      |
+| `SELENE_CONFIG`                     | string  | Caminho para o arquivo de configuração                                |
+| `SELENE_CONFIG_DIR`                 | string  | Caminho para o diretório de configuração                              |
+| `SELENE_CONFIG_CONTENT`             | string  | Conteúdo de configuração json inline                                  |
+| `SELENE_DISABLE_AUTOUPDATE`         | boolean | Desabilitar verificações de atualização automática                    |
+| `SELENE_DISABLE_PRUNE`              | boolean | Desabilitar a poda de dados antigos                                   |
+| `SELENE_DISABLE_TERMINAL_TITLE`     | boolean | Desabilitar atualizações automáticas do título do terminal            |
+| `SELENE_PERMISSION`                 | string  | Configuração de permissões json inline                                |
+| `SELENE_DISABLE_DEFAULT_PLUGINS`    | boolean | Desabilitar plugins padrão                                            |
+| `SELENE_DISABLE_LSP_DOWNLOAD`       | boolean | Desabilitar downloads automáticos do servidor LSP                     |
+| `SELENE_ENABLE_EXPERIMENTAL_MODELS` | boolean | Habilitar modelos experimentais                                       |
+| `SELENE_DISABLE_AUTOCOMPACT`        | boolean | Desabilitar compactação automática de contexto                        |
+| `SELENE_DISABLE_CLAUDE_CODE`        | boolean | Desabilitar leitura de `.claude` (prompt + habilidades)               |
+| `SELENE_DISABLE_CLAUDE_CODE_PROMPT` | boolean | Desabilitar leitura de `~/.claude/CLAUDE.md`                          |
+| `SELENE_DISABLE_CLAUDE_CODE_SKILLS` | boolean | Desabilitar carregamento de `.claude/skills`                          |
+| `SELENE_DISABLE_MODELS_FETCH`       | boolean | Desabilitar busca de modelos de fontes remotas                        |
+| `SELENE_FAKE_VCS`                   | string  | Provedor VCS falso para fins de teste                                 |
+| `SELENE_DISABLE_FILETIME_CHECK`     | boolean | Desabilitar verificação de tempo de arquivo para otimização           |
+| `SELENE_CLIENT`                     | string  | Identificador do cliente (padrão é `cli`)                             |
+| `SELENE_ENABLE_EXA`                 | boolean | Habilitar ferramentas de busca web Exa                                |
+| `SELENE_SERVER_PASSWORD`            | string  | Habilitar autenticação básica para `serve`/`web`                      |
+| `SELENE_SERVER_USERNAME`            | string  | Substituir nome de usuário de autenticação básica (padrão `selene`) |
+| `SELENE_MODELS_URL`                 | string  | URL personalizada para buscar configuração de modelos                 |
 
 ---
 
@@ -588,16 +588,16 @@ Essas variáveis de ambiente habilitam recursos experimentais que podem mudar ou
 
 | Variável                                        | Tipo    | Descrição                                                 |
 | ----------------------------------------------- | ------- | --------------------------------------------------------- |
-| `OPENCODE_EXPERIMENTAL`                         | boolean | Habilitar todos os recursos experimentais                 |
-| `OPENCODE_EXPERIMENTAL_ICON_DISCOVERY`          | boolean | Habilitar descoberta de ícones                            |
-| `OPENCODE_EXPERIMENTAL_DISABLE_COPY_ON_SELECT`  | boolean | Desabilitar cópia ao selecionar no TUI                    |
-| `OPENCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS` | number  | Tempo limite padrão para comandos bash em ms              |
-| `OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX`        | number  | Máximo de tokens de saída para respostas LLM              |
-| `OPENCODE_EXPERIMENTAL_FILEWATCHER`             | boolean | Habilitar monitoramento de arquivos para todo o diretório |
-| `OPENCODE_EXPERIMENTAL_OXFMT`                   | boolean | Habilitar formatador oxfmt                                |
-| `OPENCODE_EXPERIMENTAL_LSP_TOOL`                | boolean | Habilitar ferramenta LSP experimental                     |
-| `OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER`     | boolean | Desabilitar monitoramento de arquivos                     |
-| `OPENCODE_EXPERIMENTAL_EXA`                     | boolean | Habilitar recursos experimentais do Exa                   |
-| `OPENCODE_EXPERIMENTAL_LSP_TY`                  | boolean | Habilitar verificação de tipo LSP experimental            |
-| `OPENCODE_EXPERIMENTAL_MARKDOWN`                | boolean | Habilitar recursos experimentais de markdown              |
-| `OPENCODE_EXPERIMENTAL_PLAN_MODE`               | boolean | Habilitar modo de plano                                   |
+| `SELENE_EXPERIMENTAL`                         | boolean | Habilitar todos os recursos experimentais                 |
+| `SELENE_EXPERIMENTAL_ICON_DISCOVERY`          | boolean | Habilitar descoberta de ícones                            |
+| `SELENE_EXPERIMENTAL_DISABLE_COPY_ON_SELECT`  | boolean | Desabilitar cópia ao selecionar no TUI                    |
+| `SELENE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS` | number  | Tempo limite padrão para comandos bash em ms              |
+| `SELENE_EXPERIMENTAL_OUTPUT_TOKEN_MAX`        | number  | Máximo de tokens de saída para respostas LLM              |
+| `SELENE_EXPERIMENTAL_FILEWATCHER`             | boolean | Habilitar monitoramento de arquivos para todo o diretório |
+| `SELENE_EXPERIMENTAL_OXFMT`                   | boolean | Habilitar formatador oxfmt                                |
+| `SELENE_EXPERIMENTAL_LSP_TOOL`                | boolean | Habilitar ferramenta LSP experimental                     |
+| `SELENE_EXPERIMENTAL_DISABLE_FILEWATCHER`     | boolean | Desabilitar monitoramento de arquivos                     |
+| `SELENE_EXPERIMENTAL_EXA`                     | boolean | Habilitar recursos experimentais do Exa                   |
+| `SELENE_EXPERIMENTAL_LSP_TY`                  | boolean | Habilitar verificação de tipo LSP experimental            |
+| `SELENE_EXPERIMENTAL_MARKDOWN`                | boolean | Habilitar recursos experimentais de markdown              |
+| `SELENE_EXPERIMENTAL_PLAN_MODE`               | boolean | Habilitar modo de plano                                   |

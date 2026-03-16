@@ -1,6 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
-  "name": "@opencode-ai/plugin",
+  "name": "@selene-ai/plugin",
   "version": "1.2.18",
   "type": "module",
   "license": "MIT",
@@ -16,7 +16,7 @@
     "dist"
   ],
   "dependencies": {
-    "@opencode-ai/sdk": "workspace:*",
+    "@selene-ai/sdk": "workspace:*",
     "zod": "catalog:"
   },
   "devDependencies": {

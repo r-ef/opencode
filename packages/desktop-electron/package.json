@@ -1,13 +1,13 @@
 {
-  "name": "@opencode-ai/desktop-electron",
+  "name": "@selene-ai/desktop-electron",
   "private": true,
   "version": "1.2.18",
   "type": "module",
   "license": "MIT",
-  "homepage": "https://opencode.ai",
+  "homepage": "https://selene.run",
   "author": {
-    "name": "OpenCode",
-    "email": "hello@opencode.ai"
+    "name": "Selene",
+    "email": "hello@selene.run"
   },
   "scripts": {
     "typecheck": "tsgo -b",
@@ -24,8 +24,8 @@
   },
   "main": "./out/main/index.js",
   "dependencies": {
-    "@opencode-ai/app": "workspace:*",
-    "@opencode-ai/ui": "workspace:*",
+    "@selene-ai/app": "workspace:*",
+    "@selene-ai/ui": "workspace:*",
     "@solid-primitives/i18n": "2.2.1",
     "@solid-primitives/storage": "catalog:",
     "@solidjs/meta": "catalog:",

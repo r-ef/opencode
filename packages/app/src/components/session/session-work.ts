@@ -1,4 +1,4 @@
-import type { TaskBranchRun, TaskRun } from "@opencode-ai/sdk/v2/client"
+import type { TaskBranchRun, TaskRun } from "@selene-ai/sdk/v2/client"
 
 export type Work = {
   kind: "task" | "branch"

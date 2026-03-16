@@ -1,33 +1,33 @@
-import { FileDiff, Message, Model, Part, Session, SessionStatus, UserMessage } from "@opencode-ai/sdk/v2"
-import { SessionTurn } from "@opencode-ai/ui/session-turn"
-import { SessionReview } from "@opencode-ai/ui/session-review"
-import { DataProvider } from "@opencode-ai/ui/context"
-import { FileComponentProvider } from "@opencode-ai/ui/context/file"
-import { WorkerPoolProvider } from "@opencode-ai/ui/context/worker-pool"
+import { FileDiff, Message, Model, Part, Session, SessionStatus, UserMessage } from "@selene-ai/sdk/v2"
+import { SessionTurn } from "@selene-ai/ui/session-turn"
+import { SessionReview } from "@selene-ai/ui/session-review"
+import { DataProvider } from "@selene-ai/ui/context"
+import { FileComponentProvider } from "@selene-ai/ui/context/file"
+import { WorkerPoolProvider } from "@selene-ai/ui/context/worker-pool"
 import { createAsync, query, useParams } from "@solidjs/router"
 import { createEffect, createMemo, ErrorBoundary, For, Match, Show, Switch } from "solid-js"
 import { Share } from "~/core/share"
-import { Logo, Mark } from "@opencode-ai/ui/logo"
-import { IconButton } from "@opencode-ai/ui/icon-button"
-import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
-import { createDefaultOptions } from "@opencode-ai/ui/pierre"
-import { iife } from "@opencode-ai/util/iife"
-import { Binary } from "@opencode-ai/util/binary"
-import { NamedError } from "@opencode-ai/util/error"
+import { Logo, Mark } from "@selene-ai/ui/logo"
+import { IconButton } from "@selene-ai/ui/icon-button"
+import { ProviderIcon } from "@selene-ai/ui/provider-icon"
+import { createDefaultOptions } from "@selene-ai/ui/pierre"
+import { iife } from "@selene-ai/util/iife"
+import { Binary } from "@selene-ai/util/binary"
+import { NamedError } from "@selene-ai/util/error"
 import { DateTime } from "luxon"
 import { createStore } from "solid-js/store"
 import z from "zod"
 import NotFound from "../[...404]"
-import { Tabs } from "@opencode-ai/ui/tabs"
-import { MessageNav } from "@opencode-ai/ui/message-nav"
+import { Tabs } from "@selene-ai/ui/tabs"
+import { MessageNav } from "@selene-ai/ui/message-nav"
 import { preloadMultiFileDiff, PreloadMultiFileDiffResult } from "@pierre/diffs/ssr"
-import { FileSSR } from "@opencode-ai/ui/file-ssr"
+import { FileSSR } from "@selene-ai/ui/file-ssr"
 import { clientOnly } from "@solidjs/start"
 import { Meta, Title } from "@solidjs/meta"
 import { Base64 } from "js-base64"
 
 const ClientOnlyWorkerPoolProvider = clientOnly(() =>
-  import("@opencode-ai/ui/pierre/worker").then((m) => ({
+  import("@selene-ai/ui/pierre/worker").then((m) => ({
     default: (props: { children: any }) => (
       <WorkerPoolProvider pools={m.getWorkerPools()}>{props.children}</WorkerPoolProvider>
     ),
@@ -202,15 +202,15 @@ export default function () {
               modelParam = "unknown"
             }
             const version = `v${info().version}`
-            return `https://social-cards.sst.dev/opencode-share/${encodedTitle}.png?model=${modelParam}&version=${version}&id=${data().shareID}`
+            return `https://social-cards.sst.dev/selene-share/${encodedTitle}.png?model=${modelParam}&version=${version}&id=${data().shareID}`
           })
 
           return (
             <>
               <Show when={info().title}>
-                <Title>{info().title} | OpenCode</Title>
+                <Title>{info().title} | Selene</Title>
               </Show>
-              <Meta name="description" content="opencode - The AI coding agent built for the terminal." />
+              <Meta name="description" content="selene - The AI coding agent built for the terminal." />
               <Meta property="og:image" content={ogImage()} />
               <Meta name="twitter:image" content={ogImage()} />
               <ClientOnlyWorkerPoolProvider>
@@ -311,21 +311,21 @@ export default function () {
                         <div class="relative bg-background-stronger w-screen h-screen overflow-hidden flex flex-col">
                           <header class="h-12 px-6 py-2 flex items-center justify-between self-stretch bg-background-base border-b border-border-weak-base">
                             <div class="">
-                              <a href="https://opencode.ai">
+                              <a href="https://selene.run">
                                 <Mark />
                               </a>
                             </div>
                             <div class="flex gap-3 items-center">
                               <IconButton
                                 as={"a"}
-                                href="https://github.com/anomalyco/opencode"
+                                href="https://github.com/anomalyco/selene"
                                 target="_blank"
                                 icon="github"
                                 variant="ghost"
                               />
                               <IconButton
                                 as={"a"}
-                                href="https://opencode.ai/discord"
+                                href="https://selene.run/discord"
                                 target="_blank"
                                 icon="discord"
                                 variant="ghost"

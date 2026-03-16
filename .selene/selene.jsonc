@@ -1,0 +1,14 @@
+{
+  "$schema": "https://selene.run/config.json",
+  "provider": {
+    "openrouter": {},
+    "selene": {
+      "options": {},
+    },
+  },
+  "mcp": {},
+  "tools": {
+    "github-triage": false,
+    "github-pr-search": false,
+  },
+}

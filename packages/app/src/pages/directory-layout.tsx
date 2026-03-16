@@ -5,10 +5,10 @@ import { SDKProvider } from "@/context/sdk"
 import { SyncProvider, useSync } from "@/context/sync"
 import { LocalProvider } from "@/context/local"
 
-import { DataProvider } from "@opencode-ai/ui/context"
+import { DataProvider } from "@selene-ai/ui/context"
 import { decode64 } from "@/utils/base64"
-import { base64Encode } from "@opencode-ai/util/encode"
-import { showToast } from "@opencode-ai/ui/toast"
+import { base64Encode } from "@selene-ai/util/encode"
+import { showToast } from "@selene-ai/ui/toast"
 import { useLanguage } from "@/context/language"
 
 function DirectoryDataProvider(props: ParentProps<{ directory: string }>) {

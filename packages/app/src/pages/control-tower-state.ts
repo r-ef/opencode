@@ -1,4 +1,4 @@
-import type { Session, TaskBranchRun, TaskEvent } from "@opencode-ai/sdk/v2/client"
+import type { Session, TaskBranchRun, TaskEvent } from "@selene-ai/sdk/v2/client"
 
 export type Apply = "idle" | "running" | "done" | "error"
 

@@ -1,4 +1,4 @@
-import { sampledChecksum } from "@opencode-ai/util/encode"
+import { sampledChecksum } from "@selene-ai/util/encode"
 import {
   DEFAULT_VIRTUAL_FILE_METRICS,
   type ExpansionDirections,

@@ -1,36 +1,36 @@
-id = "opencode"
-name = "OpenCode"
+id = "selene"
+name = "Selene"
 description = "The open source coding agent."
 version = "1.2.18"
 schema_version = 1
 authors = ["Anomaly"]
-repository = "https://github.com/anomalyco/opencode"
+repository = "https://github.com/anomalyco/selene"
 
-[agent_servers.opencode]
-name = "OpenCode"
-icon = "./icons/opencode.svg"
+[agent_servers.selene]
+name = "Selene"
+icon = "./icons/selene.svg"
 
-[agent_servers.opencode.targets.darwin-aarch64]
-archive = "https://github.com/anomalyco/opencode/releases/download/v1.2.18/opencode-darwin-arm64.zip"
-cmd = "./opencode"
+[agent_servers.selene.targets.darwin-aarch64]
+archive = "https://github.com/anomalyco/selene/releases/download/v1.2.18/selene-darwin-arm64.zip"
+cmd = "./selene"
 args = ["acp"]
 
-[agent_servers.opencode.targets.darwin-x86_64]
-archive = "https://github.com/anomalyco/opencode/releases/download/v1.2.18/opencode-darwin-x64.zip"
-cmd = "./opencode"
+[agent_servers.selene.targets.darwin-x86_64]
+archive = "https://github.com/anomalyco/selene/releases/download/v1.2.18/selene-darwin-x64.zip"
+cmd = "./selene"
 args = ["acp"]
 
-[agent_servers.opencode.targets.linux-aarch64]
-archive = "https://github.com/anomalyco/opencode/releases/download/v1.2.18/opencode-linux-arm64.tar.gz"
-cmd = "./opencode"
+[agent_servers.selene.targets.linux-aarch64]
+archive = "https://github.com/anomalyco/selene/releases/download/v1.2.18/selene-linux-arm64.tar.gz"
+cmd = "./selene"
 args = ["acp"]
 
-[agent_servers.opencode.targets.linux-x86_64]
-archive = "https://github.com/anomalyco/opencode/releases/download/v1.2.18/opencode-linux-x64.tar.gz"
-cmd = "./opencode"
+[agent_servers.selene.targets.linux-x86_64]
+archive = "https://github.com/anomalyco/selene/releases/download/v1.2.18/selene-linux-x64.tar.gz"
+cmd = "./selene"
 args = ["acp"]
 
-[agent_servers.opencode.targets.windows-x86_64]
-archive = "https://github.com/anomalyco/opencode/releases/download/v1.2.18/opencode-windows-x64.zip"
-cmd = "./opencode.exe"
+[agent_servers.selene.targets.windows-x86_64]
+archive = "https://github.com/anomalyco/selene/releases/download/v1.2.18/selene-windows-x64.zip"
+cmd = "./selene.exe"
 args = ["acp"]

@@ -7,15 +7,15 @@ import config from "../../../../config.mjs"
 export const console = config.console
 export const email = `mailto:${config.email}`
 
-OpenCode Go er et lavkostnadsabonnement til **$10/måned** som gir deg pålitelig tilgang til populære åpne kodemodeller.
+Selene Go er et lavkostnadsabonnement til **$10/måned** som gir deg pålitelig tilgang til populære åpne kodemodeller.
 
 :::note
-OpenCode Go er for tiden i beta.
+Selene Go er for tiden i beta.
 :::
 
-Go fungerer som enhver annen leverandør i OpenCode. Du abonnerer på OpenCode Go og
+Go fungerer som enhver annen leverandør i Selene. Du abonnerer på Selene Go og
 får din API-nøkkel. Det er **helt valgfritt** og du trenger ikke bruke det for å
-bruke OpenCode.
+bruke Selene.
 
 Det er designet primært for internasjonale brukere, med modeller driftet i USA, EU og Singapore for stabil global tilgang.
 
@@ -31,7 +31,7 @@ Imidlertid kan det være vanskelig å få pålitelig tilgang med lav ventetid. L
 varierer i kvalitet og tilgjengelighet.
 
 :::tip
-Vi testet en utvalgt gruppe modeller og leverandører som fungerer bra med OpenCode.
+Vi testet en utvalgt gruppe modeller og leverandører som fungerer bra med Selene.
 :::
 
 For å fikse dette gjorde vi et par ting:
@@ -43,22 +43,22 @@ For å fikse dette gjorde vi et par ting:
 3. Til slutt ytelsestestet vi kombinasjonen av modell/leverandør og kom opp
    med en liste som vi føler oss trygge på å anbefale.
 
-OpenCode Go gir deg tilgang til disse modellene for **$10/måned**.
+Selene Go gir deg tilgang til disse modellene for **$10/måned**.
 
 ---
 
 ## Hvordan det fungerer
 
-OpenCode Go fungerer som enhver annen leverandør i OpenCode.
+Selene Go fungerer som enhver annen leverandør i Selene.
 
-1. Du logger deg inn på **<a href={console}>OpenCode Zen</a>**, abonnerer på Go, og
+1. Du logger deg inn på **<a href={console}>Selene Zen</a>**, abonnerer på Go, og
    kopierer API-nøkkelen din.
-2. Du kjører kommandoen `/connect` i TUI-en, velger `OpenCode Go`, og limer inn
+2. Du kjører kommandoen `/connect` i TUI-en, velger `Selene Go`, og limer inn
    API-nøkkelen din.
 3. Kjør `/models` i TUI-en for å se listen over modeller tilgjengelig gjennom Go.
 
 :::note
-Bare ett medlem per arbeidsområde kan abonnere på OpenCode Go.
+Bare ett medlem per arbeidsområde kan abonnere på Selene Go.
 :::
 
 Den nåværende listen over modeller inkluderer:
@@ -73,7 +73,7 @@ Listen over modeller kan endres etter hvert som vi tester og legger til nye.
 
 ## Bruksgrenser
 
-OpenCode Go inkluderer følgende grenser:
+Selene Go inkluderer følgende grenser:
 
 - **5 timers grense** — $12 i bruk
 - **Ukentlig grense** — $30 i bruk
@@ -107,7 +107,7 @@ Bruksgrenser kan endres etter hvert som vi lærer fra tidlig bruk og tilbakemeld
 
 ### Priser
 
-OpenCode Go er et **$10/måned** abonnementsplan. Nedenfor er prisene **per 1M tokens**.
+Selene Go er et **$10/måned** abonnementsplan. Nedenfor er prisene **per 1M tokens**.
 
 | Modell       | Input | Output | Bufret lesing |
 | ------------ | ----- | ------ | ------------- |
@@ -131,13 +131,13 @@ Du kan også få tilgang til Go-modeller gjennom følgende API-endepunkter.
 
 | Modell       | Modell-ID    | Endepunkt                                        | AI SDK Pakke                |
 | ------------ | ------------ | ------------------------------------------------ | --------------------------- |
-| GLM-5        | glm-5        | `https://opencode.ai/zen/go/v1/chat/completions` | `@ai-sdk/openai-compatible` |
-| Kimi K2.5    | kimi-k2.5    | `https://opencode.ai/zen/go/v1/chat/completions` | `@ai-sdk/openai-compatible` |
-| MiniMax M2.5 | minimax-m2.5 | `https://opencode.ai/zen/go/v1/messages`         | `@ai-sdk/anthropic`         |
+| GLM-5        | glm-5        | `https://selene.run/zen/go/v1/chat/completions` | `@ai-sdk/openai-compatible` |
+| Kimi K2.5    | kimi-k2.5    | `https://selene.run/zen/go/v1/chat/completions` | `@ai-sdk/openai-compatible` |
+| MiniMax M2.5 | minimax-m2.5 | `https://selene.run/zen/go/v1/messages`         | `@ai-sdk/anthropic`         |
 
-[Modell-ID-en](/docs/config/#models) i din OpenCode-konfigurasjon
-bruker formatet `opencode-go/<model-id>`. For eksempel, for Kimi K2.5, ville du
-bruke `opencode-go/kimi-k2.5` i konfigurasjonen din.
+[Modell-ID-en](/docs/config/#models) i din Selene-konfigurasjon
+bruker formatet `selene-go/<model-id>`. For eksempel, for Kimi K2.5, ville du
+bruke `selene-go/kimi-k2.5` i konfigurasjonen din.
 
 ---
 
@@ -151,9 +151,9 @@ Planen er designet primært for internasjonale brukere, med modeller driftet i U
 
 ## Mål
 
-Vi opprettet OpenCode Go for å:
+Vi opprettet Selene Go for å:
 
 1. Gjøre AI-koding **tilgjengelig** for flere mennesker med et lavkostnadsabonnement.
 2. Gi **pålitelig** tilgang til de beste åpne kodemodellene.
 3. Kurere modeller som er **testet og ytelsestestet** for bruk av kodeagenter.
-4. Ha **ingen innlåsing** ved å tillate deg å bruke hvilken som helst annen leverandør med OpenCode også.
+4. Ha **ingen innlåsing** ved å tillate deg å bruke hvilken som helst annen leverandør med Selene også.

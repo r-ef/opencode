@@ -1,15 +1,15 @@
-import { AppIcon } from "@opencode-ai/ui/app-icon"
-import { Button } from "@opencode-ai/ui/button"
-import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
-import { Icon } from "@opencode-ai/ui/icon"
-import { IconButton } from "@opencode-ai/ui/icon-button"
-import { Keybind } from "@opencode-ai/ui/keybind"
-import { Popover } from "@opencode-ai/ui/popover"
-import { Spinner } from "@opencode-ai/ui/spinner"
-import { TextField } from "@opencode-ai/ui/text-field"
-import { showToast } from "@opencode-ai/ui/toast"
-import { Tooltip, TooltipKeybind } from "@opencode-ai/ui/tooltip"
-import { getFilename } from "@opencode-ai/util/path"
+import { AppIcon } from "@selene-ai/ui/app-icon"
+import { Button } from "@selene-ai/ui/button"
+import { DropdownMenu } from "@selene-ai/ui/dropdown-menu"
+import { Icon } from "@selene-ai/ui/icon"
+import { IconButton } from "@selene-ai/ui/icon-button"
+import { Keybind } from "@selene-ai/ui/keybind"
+import { Popover } from "@selene-ai/ui/popover"
+import { Spinner } from "@selene-ai/ui/spinner"
+import { TextField } from "@selene-ai/ui/text-field"
+import { showToast } from "@selene-ai/ui/toast"
+import { Tooltip, TooltipKeybind } from "@selene-ai/ui/tooltip"
+import { getFilename } from "@selene-ai/util/path"
 import { useParams } from "@solidjs/router"
 import { createEffect, createMemo, For, onCleanup, Show } from "solid-js"
 import { createStore } from "solid-js/store"
@@ -351,8 +351,8 @@ export function SessionHeader() {
     platform,
   })
 
-  const centerMount = createMemo(() => document.getElementById("opencode-titlebar-center"))
-  const rightMount = createMemo(() => document.getElementById("opencode-titlebar-right"))
+  const centerMount = createMemo(() => document.getElementById("selene-titlebar-center"))
+  const rightMount = createMemo(() => document.getElementById("selene-titlebar-right"))
 
   return (
     <>

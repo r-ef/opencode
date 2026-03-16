@@ -1,5 +1,5 @@
 import { Show } from "solid-js"
-import { Tabs } from "@opencode-ai/ui/tabs"
+import { Tabs } from "@selene-ai/ui/tabs"
 import { useLanguage } from "@/context/language"
 
 export function SessionMobileTabs(props: {

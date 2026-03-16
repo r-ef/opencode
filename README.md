@@ -10,8 +10,8 @@
 <p align="center">The open source AI coding agent.</p>
 <p align="center">
   <a href="https://selene.run/discord"><img alt="Discord" src="https://img.shields.io/discord/1391832426048651334?style=flat-square&label=discord" /></a>
-  <a href="https://www.npmjs.com/package/opencode-ai"><img alt="npm" src="https://img.shields.io/npm/v/opencode-ai?style=flat-square" /></a>
-  <a href="https://github.com/anomalyco/opencode/actions/workflows/publish.yml"><img alt="Build status" src="https://img.shields.io/github/actions/workflow/status/anomalyco/opencode/publish.yml?style=flat-square&branch=dev" /></a>
+  <a href="https://www.npmjs.com/package/selene-ai"><img alt="npm" src="https://img.shields.io/npm/v/selene-ai?style=flat-square" /></a>
+  <a href="https://github.com/anomalyco/selene/actions/workflows/publish.yml"><img alt="Build status" src="https://img.shields.io/github/actions/workflow/status/anomalyco/selene/publish.yml?style=flat-square&branch=dev" /></a>
 </p>
 
 <p align="center">
@@ -49,15 +49,15 @@
 curl -fsSL https://selene.run/install | bash
 
 # Package managers
-npm i -g opencode-ai@latest        # or bun/pnpm/yarn
-scoop install opencode             # Windows
-choco install opencode             # Windows
-brew install anomalyco/tap/opencode # macOS and Linux (recommended, always up to date)
-brew install opencode              # macOS and Linux (official brew formula, updated less)
-sudo pacman -S opencode            # Arch Linux (Stable)
-paru -S opencode-bin               # Arch Linux (Latest from AUR)
-mise use -g opencode               # Any OS
-nix run nixpkgs#opencode           # or github:anomalyco/opencode for latest dev branch
+npm i -g selene-ai@latest        # or bun/pnpm/yarn
+scoop install selene             # Windows
+choco install selene             # Windows
+brew install anomalyco/tap/selene # macOS and Linux (recommended, always up to date)
+brew install selene              # macOS and Linux (official brew formula, updated less)
+sudo pacman -S selene            # Arch Linux (Stable)
+paru -S selene-bin               # Arch Linux (Latest from AUR)
+mise use -g selene               # Any OS
+nix run nixpkgs#selene           # or github:anomalyco/selene for latest dev branch
 ```
 
 > [!TIP]
@@ -65,7 +65,7 @@ nix run nixpkgs#opencode           # or github:anomalyco/opencode for latest dev
 
 ### Desktop App (BETA)
 
-Selene is also available as a desktop application. Download directly from the [releases page](https://github.com/anomalyco/opencode/releases) or [selene.run/download](https://selene.run/download).
+Selene is also available as a desktop application. Download directly from the [releases page](https://github.com/anomalyco/selene/releases) or [selene.run/download](https://selene.run/download).
 
 | Platform              | Download                            |
 | --------------------- | ----------------------------------- |
@@ -85,14 +85,14 @@ scoop bucket add extras; scoop install extras/selene-desktop
 
 The install script respects the following priority order for the installation path:
 
-1. `$OPENCODE_INSTALL_DIR` - Custom installation directory
+1. `$SELENE_INSTALL_DIR` - Custom installation directory
 2. `$XDG_BIN_DIR` - XDG Base Directory Specification compliant path
 3. `$HOME/bin` - Standard user binary directory (if it exists or can be created)
 4. `$HOME/.selene/bin` - Default fallback
 
 ```bash
 # Examples
-OPENCODE_INSTALL_DIR=/usr/local/bin curl -fsSL https://selene.run/install | bash
+SELENE_INSTALL_DIR=/usr/local/bin curl -fsSL https://selene.run/install | bash
 XDG_BIN_DIR=$HOME/.local/bin curl -fsSL https://selene.run/install | bash
 ```
 

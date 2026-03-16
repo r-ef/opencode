@@ -7,13 +7,13 @@ import config from "../../../../config.mjs"
 export const console = config.console
 export const email = `mailto:${config.email}`
 
-OpenCode Goは、人気のあるオープンコーディングモデルへの信頼性の高いアクセスを提供する、低価格な**月額10ドル**のサブスクリプションです。
+Selene Goは、人気のあるオープンコーディングモデルへの信頼性の高いアクセスを提供する、低価格な**月額10ドル**のサブスクリプションです。
 
 :::note
-OpenCode Goは現在ベータ版です。
+Selene Goは現在ベータ版です。
 :::
 
-GoはOpenCodeの他のプロバイダーと同様に機能します。OpenCode Goに登録してAPIキーを取得します。これは**完全にオプション**であり、OpenCodeを使用するために必須ではありません。
+GoはSeleneの他のプロバイダーと同様に機能します。Selene Goに登録してAPIキーを取得します。これは**完全にオプション**であり、Seleneを使用するために必須ではありません。
 
 主に海外ユーザー向けに設計されており、安定したグローバルアクセスのためにモデルは米国、EU、シンガポールでホストされています。
 
@@ -26,7 +26,7 @@ GoはOpenCodeの他のプロバイダーと同様に機能します。OpenCode G
 しかし、信頼性が高く低遅延なアクセスを得ることは難しい場合があります。プロバイダーによって品質や可用性が異なるためです。
 
 :::tip
-OpenCodeとうまく連携する厳選されたモデルとプロバイダーをテストしました。
+Seleneとうまく連携する厳選されたモデルとプロバイダーをテストしました。
 :::
 
 これを解決するために、私たちはいくつかのことを行いました。
@@ -35,20 +35,20 @@ OpenCodeとうまく連携する厳選されたモデルとプロバイダーを
 2. 次に、いくつかのプロバイダーと協力して、これらが正しく提供されていることを確認しました。
 3. 最後に、モデルとプロバイダーの組み合わせをベンチマークし、自信を持って推奨できるリストを作成しました。
 
-OpenCode Goでは、これらのモデルに**月額10ドル**でアクセスできます。
+Selene Goでは、これらのモデルに**月額10ドル**でアクセスできます。
 
 ---
 
 ## 仕組み
 
-OpenCode GoはOpenCodeの他のプロバイダーと同様に機能します。
+Selene GoはSeleneの他のプロバイダーと同様に機能します。
 
-1. **<a href={console}>OpenCode Zen</a>**にサインインし、Goに登録してAPIキーをコピーします。
-2. TUIで`/connect`コマンドを実行し、`OpenCode Go`を選択してAPIキーを貼り付けます。
+1. **<a href={console}>Selene Zen</a>**にサインインし、Goに登録してAPIキーをコピーします。
+2. TUIで`/connect`コマンドを実行し、`Selene Go`を選択してAPIキーを貼り付けます。
 3. TUIで`/models`を実行して、Go経由で利用可能なモデルのリストを確認します。
 
 :::note
-ワークスペースごとに1人のメンバーのみがOpenCode Goに登録できます。
+ワークスペースごとに1人のメンバーのみがSelene Goに登録できます。
 :::
 
 現在のモデルリストには以下が含まれます：
@@ -63,7 +63,7 @@ OpenCode GoはOpenCodeの他のプロバイダーと同様に機能します。
 
 ## 利用制限
 
-OpenCode Goには以下の制限が含まれます：
+Selene Goには以下の制限が含まれます：
 
 - **5時間制限** — 12ドル分の利用
 - **週間制限** — 30ドル分の利用
@@ -97,7 +97,7 @@ OpenCode Goには以下の制限が含まれます：
 
 ### 価格
 
-OpenCode Goは**月額10ドル**のサブスクリプションプランです。以下は**100万トークンあたり**の価格です。
+Selene Goは**月額10ドル**のサブスクリプションプランです。以下は**100万トークンあたり**の価格です。
 
 | モデル       | 入力  | 出力  | キャッシュ読み込み |
 | ------------ | ----- | ----- | ------------------ |
@@ -119,11 +119,11 @@ Zen残高にクレジットがある場合、コンソールで**残高を使用
 
 | モデル       | モデルID     | エンドポイント                                   | AI SDKパッケージ            |
 | ------------ | ------------ | ------------------------------------------------ | --------------------------- |
-| GLM-5        | glm-5        | `https://opencode.ai/zen/go/v1/chat/completions` | `@ai-sdk/openai-compatible` |
-| Kimi K2.5    | kimi-k2.5    | `https://opencode.ai/zen/go/v1/chat/completions` | `@ai-sdk/openai-compatible` |
-| MiniMax M2.5 | minimax-m2.5 | `https://opencode.ai/zen/go/v1/messages`         | `@ai-sdk/anthropic`         |
+| GLM-5        | glm-5        | `https://selene.run/zen/go/v1/chat/completions` | `@ai-sdk/openai-compatible` |
+| Kimi K2.5    | kimi-k2.5    | `https://selene.run/zen/go/v1/chat/completions` | `@ai-sdk/openai-compatible` |
+| MiniMax M2.5 | minimax-m2.5 | `https://selene.run/zen/go/v1/messages`         | `@ai-sdk/anthropic`         |
 
-OpenCode設定の[モデルID](/docs/config/#models)は、`opencode-go/<model-id>`という形式を使用します。たとえば、Kimi K2.5の場合、設定で`opencode-go/kimi-k2.5`を使用します。
+Selene設定の[モデルID](/docs/config/#models)は、`selene-go/<model-id>`という形式を使用します。たとえば、Kimi K2.5の場合、設定で`selene-go/kimi-k2.5`を使用します。
 
 ---
 
@@ -137,9 +137,9 @@ OpenCode設定の[モデルID](/docs/config/#models)は、`opencode-go/<model-id
 
 ## 目標
 
-OpenCode Goを作成した目的は以下の通りです：
+Selene Goを作成した目的は以下の通りです：
 
 1. 低価格のサブスクリプションで、より多くの人々がAIコーディングに**アクセス**できるようにすること。
 2. 最高のオープンコーディングモデルへの**信頼性の高い**アクセスを提供すること。
 3. コーディングエージェントでの使用向けに**テストおよびベンチマーク**されたモデルを厳選すること。
-4. OpenCodeで他のプロバイダーも使用できるようにすることで、**ロックインを排除**すること。
+4. Seleneで他のプロバイダーも使用できるようにすることで、**ロックインを排除**すること。

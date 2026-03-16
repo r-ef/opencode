@@ -51,7 +51,7 @@ async function cleanup() {
 }
 
 async function fix(pr: PR, files: string[]) {
-  console.log(`  Trying to auto-resolve ${files.length} conflict(s) with opencode...`)
+  console.log(`  Trying to auto-resolve ${files.length} conflict(s) with selene...`)
   const prompt = [
     `Resolve the current git merge conflicts while merging PR #${pr.number} into the beta branch.`,
     `Only touch these files: ${files.join(", ")}.`,
@@ -60,9 +60,9 @@ async function fix(pr: PR, files: string[]) {
   ].join("\n")
 
   try {
-    await $`opencode run -m opencode/gpt-5.3-codex ${prompt}`
+    await $`selene run -m selene/gpt-5.3-codex ${prompt}`
   } catch (err) {
-    console.log(`  opencode failed: ${err}`)
+    console.log(`  selene failed: ${err}`)
     return false
   }
 
@@ -72,7 +72,7 @@ async function fix(pr: PR, files: string[]) {
     return false
   }
 
-  console.log("  Conflicts resolved with opencode")
+  console.log("  Conflicts resolved with selene")
   return true
 }
 

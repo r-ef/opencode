@@ -7,13 +7,13 @@ import config from "../../../../config.mjs"
 export const console = config.console
 export const email = `mailto:${config.email}`
 
-OpenCode Go est un abonnement à bas coût de **10 $/mois** qui vous donne un accès fiable aux modèles de code ouverts populaires.
+Selene Go est un abonnement à bas coût de **10 $/mois** qui vous donne un accès fiable aux modèles de code ouverts populaires.
 
 :::note
-OpenCode Go est actuellement en bêta.
+Selene Go est actuellement en bêta.
 :::
 
-Go fonctionne comme tout autre fournisseur dans OpenCode. Vous vous abonnez à OpenCode Go et obtenez votre clé API. C'est **complètement optionnel** et vous n'avez pas besoin de l'utiliser pour utiliser OpenCode.
+Go fonctionne comme tout autre fournisseur dans Selene. Vous vous abonnez à Selene Go et obtenez votre clé API. C'est **complètement optionnel** et vous n'avez pas besoin de l'utiliser pour utiliser Selene.
 
 Il est conçu principalement pour les utilisateurs internationaux, avec des modèles hébergés aux États-Unis, en UE et à Singapour pour un accès mondial stable.
 
@@ -26,7 +26,7 @@ Les modèles ouverts sont devenus vraiment bons. Ils atteignent maintenant des p
 Cependant, obtenir un accès fiable et à faible latence à ces modèles peut être difficile. Les fournisseurs varient en qualité et en disponibilité.
 
 :::tip
-Nous avons testé un groupe sélectionné de modèles et de fournisseurs qui fonctionnent bien avec OpenCode.
+Nous avons testé un groupe sélectionné de modèles et de fournisseurs qui fonctionnent bien avec Selene.
 :::
 
 Pour remédier à cela, nous avons fait plusieurs choses :
@@ -35,20 +35,20 @@ Pour remédier à cela, nous avons fait plusieurs choses :
 2. Nous avons ensuite travaillé avec quelques fournisseurs pour nous assurer qu'ils étaient servis correctement.
 3. Enfin, nous avons évalué la combinaison modèle/fournisseur et établi une liste que nous nous sentons à l'aise de recommander.
 
-OpenCode Go vous donne accès à ces modèles pour **10 $/mois**.
+Selene Go vous donne accès à ces modèles pour **10 $/mois**.
 
 ---
 
 ## Comment ça marche
 
-OpenCode Go fonctionne comme tout autre fournisseur dans OpenCode.
+Selene Go fonctionne comme tout autre fournisseur dans Selene.
 
-1. Vous vous connectez à **<a href={console}>OpenCode Zen</a>**, vous vous abonnez à Go et copiez votre clé API.
-2. Vous exécutez la commande `/connect` dans la TUI, sélectionnez `OpenCode Go`, et collez votre clé API.
+1. Vous vous connectez à **<a href={console}>Selene Zen</a>**, vous vous abonnez à Go et copiez votre clé API.
+2. Vous exécutez la commande `/connect` dans la TUI, sélectionnez `Selene Go`, et collez votre clé API.
 3. Exécutez `/models` dans la TUI pour voir la liste des modèles disponibles via Go.
 
 :::note
-Un seul membre par espace de travail peut s'abonner à OpenCode Go.
+Un seul membre par espace de travail peut s'abonner à Selene Go.
 :::
 
 La liste actuelle des modèles inclut :
@@ -63,7 +63,7 @@ La liste des modèles peut changer à mesure que nous testons et ajoutons de nou
 
 ## Limites d'utilisation
 
-OpenCode Go inclut les limites suivantes :
+Selene Go inclut les limites suivantes :
 
 - **Limite de 5 heures** — 12 $ d'utilisation
 - **Limite hebdomadaire** — 30 $ d'utilisation
@@ -97,7 +97,7 @@ Les limites d'utilisation peuvent changer à mesure que nous apprenons des premi
 
 ### Tarification
 
-OpenCode Go est un plan d'abonnement à **10 $/mois**. Ci-dessous se trouvent les prix **par 1M de tokens**.
+Selene Go est un plan d'abonnement à **10 $/mois**. Ci-dessous se trouvent les prix **par 1M de tokens**.
 
 | Modèle       | Entrée | Sortie | Lecture en cache |
 | ------------ | ------ | ------ | ---------------- |
@@ -119,11 +119,11 @@ Vous pouvez également accéder aux modèles Go via les endpoints API suivants.
 
 | Modèle       | ID du modèle | Endpoint                                         | Package AI SDK              |
 | ------------ | ------------ | ------------------------------------------------ | --------------------------- |
-| GLM-5        | glm-5        | `https://opencode.ai/zen/go/v1/chat/completions` | `@ai-sdk/openai-compatible` |
-| Kimi K2.5    | kimi-k2.5    | `https://opencode.ai/zen/go/v1/chat/completions` | `@ai-sdk/openai-compatible` |
-| MiniMax M2.5 | minimax-m2.5 | `https://opencode.ai/zen/go/v1/messages`         | `@ai-sdk/anthropic`         |
+| GLM-5        | glm-5        | `https://selene.run/zen/go/v1/chat/completions` | `@ai-sdk/openai-compatible` |
+| Kimi K2.5    | kimi-k2.5    | `https://selene.run/zen/go/v1/chat/completions` | `@ai-sdk/openai-compatible` |
+| MiniMax M2.5 | minimax-m2.5 | `https://selene.run/zen/go/v1/messages`         | `@ai-sdk/anthropic`         |
 
-L'[ID du modèle](/docs/config/#models) dans votre configuration OpenCode utilise le format `opencode-go/<model-id>`. Par exemple, pour Kimi K2.5, vous utiliseriez `opencode-go/kimi-k2.5` dans votre configuration.
+L'[ID du modèle](/docs/config/#models) dans votre configuration Selene utilise le format `selene-go/<model-id>`. Par exemple, pour Kimi K2.5, vous utiliseriez `selene-go/kimi-k2.5` dans votre configuration.
 
 ---
 
@@ -137,9 +137,9 @@ Le plan est conçu principalement pour les utilisateurs internationaux, avec des
 
 ## Objectifs
 
-Nous avons créé OpenCode Go pour :
+Nous avons créé Selene Go pour :
 
 1. Rendre le codage par IA **accessible** à plus de personnes avec un abonnement à bas coût.
 2. Fournir un accès **fiable** aux meilleurs modèles de code ouverts.
 3. Sélectionner des modèles qui sont **testés et évalués** pour l'utilisation d'agents de codage.
-4. N'avoir **aucun verrouillage** en vous permettant d'utiliser tout autre fournisseur avec OpenCode également.
+4. N'avoir **aucun verrouillage** en vous permettant d'utiliser tout autre fournisseur avec Selene également.

@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { $ } from "bun"
 
-import { Script } from "@opencode-ai/script"
+import { Script } from "@selene-ai/script"
 import { copyBinaryToSidecarFolder, getCurrentSidecar, resolveChannel, windowsify } from "./utils"
 
 const channel = resolveChannel()
@@ -14,11 +14,11 @@ console.log(`Updated package.json version to ${Script.version}`)
 
 const sidecarConfig = getCurrentSidecar()
 
-const dir = "resources/opencode-binaries"
+const dir = "resources/selene-binaries"
 
 await $`mkdir -p ${dir}`
-await $`gh run download ${Bun.env.GITHUB_RUN_ID} -n opencode-cli`.cwd(dir)
+await $`gh run download ${Bun.env.GITHUB_RUN_ID} -n selene-cli`.cwd(dir)
 
-await copyBinaryToSidecarFolder(windowsify(`${dir}/${sidecarConfig.ocBinary}/bin/opencode`))
+await copyBinaryToSidecarFolder(windowsify(`${dir}/${sidecarConfig.ocBinary}/bin/selene`))
 
 await $`rm -rf ${dir}`

@@ -7,15 +7,15 @@ import config from "../../../../config.mjs"
 export const console = config.console
 export const email = `mailto:${config.email}`
 
-OpenCode Go je povoljna pretplata od **$10/mjesečno** koja vam daje pouzdan pristup popularnim otvorenim modelima kodiranja.
+Selene Go je povoljna pretplata od **$10/mjesečno** koja vam daje pouzdan pristup popularnim otvorenim modelima kodiranja.
 
 :::note
-OpenCode Go je trenutno u beta fazi.
+Selene Go je trenutno u beta fazi.
 :::
 
-Go funkcioniše kao bilo koji drugi pružatelj usluga u OpenCode-u. Pretplatite se na OpenCode Go i
+Go funkcioniše kao bilo koji drugi pružatelj usluga u Selene-u. Pretplatite se na Selene Go i
 dobijete svoj API ključ. To je **potpuno opcionalno** i ne morate ga koristiti da biste
-koristili OpenCode.
+koristili Selene.
 
 Dizajniran je prvenstveno za međunarodne korisnike, sa modelima hostovanim u SAD-u, EU i Singapuru za stabilan globalni pristup.
 
@@ -31,7 +31,7 @@ Međutim, dobivanje pouzdanog pristupa s malim kašnjenjem može biti teško. Pr
 variraju u kvaliteti i dostupnosti.
 
 :::tip
-Testirali smo odabranu grupu modela i pružatelja usluga koji dobro rade sa OpenCode-om.
+Testirali smo odabranu grupu modela i pružatelja usluga koji dobro rade sa Selene-om.
 :::
 
 Da bismo ovo riješili, uradili smo nekoliko stvari:
@@ -43,22 +43,22 @@ Da bismo ovo riješili, uradili smo nekoliko stvari:
 3. Konačno, benchmarkirali smo kombinaciju modela/pružatelja usluga i došli do
    liste koju se osjećamo dobro preporučiti.
 
-OpenCode Go vam daje pristup ovim modelima za **$10/mjesečno**.
+Selene Go vam daje pristup ovim modelima za **$10/mjesečno**.
 
 ---
 
 ## Kako to funkcioniše
 
-OpenCode Go funkcioniše kao bilo koji drugi pružatelj usluga u OpenCode-u.
+Selene Go funkcioniše kao bilo koji drugi pružatelj usluga u Selene-u.
 
-1. Prijavite se na **<a href={console}>OpenCode Zen</a>**, pretplatite se na Go i
+1. Prijavite se na **<a href={console}>Selene Zen</a>**, pretplatite se na Go i
    kopirajte svoj API ključ.
-2. Pokrenite `/connect` komandu u TUI-ju, odaberite `OpenCode Go` i zalijepite
+2. Pokrenite `/connect` komandu u TUI-ju, odaberite `Selene Go` i zalijepite
    svoj API ključ.
 3. Pokrenite `/models` u TUI-ju da vidite listu modela dostupnih putem Go.
 
 :::note
-Samo jedan član po radnom prostoru se može pretplatiti na OpenCode Go.
+Samo jedan član po radnom prostoru se može pretplatiti na Selene Go.
 :::
 
 Trenutna lista modela uključuje:
@@ -73,7 +73,7 @@ Lista modela se može mijenjati kako testiramo i dodajemo nove.
 
 ## Ograničenja korištenja
 
-OpenCode Go uključuje sljedeća ograničenja:
+Selene Go uključuje sljedeća ograničenja:
 
 - **Limit od 5 sati** — $12 korištenja
 - **Sedmični limit** — $30 korištenja
@@ -107,7 +107,7 @@ Ograničenja korištenja se mogu mijenjati kako učimo iz rane upotrebe i povrat
 
 ### Cijene
 
-OpenCode Go je pretplatnički plan od **$10/mjesečno**. Ispod su cijene **po 1M tokena**.
+Selene Go je pretplatnički plan od **$10/mjesečno**. Ispod su cijene **po 1M tokena**.
 
 | Model        | Ulaz  | Izlaz | Keširano čitanje |
 | ------------ | ----- | ----- | ---------------- |
@@ -131,13 +131,13 @@ Također možete pristupiti Go modelima putem sljedećih API endpointa.
 
 | Model        | ID modela    | Endpoint                                         | AI SDK Paket                |
 | ------------ | ------------ | ------------------------------------------------ | --------------------------- |
-| GLM-5        | glm-5        | `https://opencode.ai/zen/go/v1/chat/completions` | `@ai-sdk/openai-compatible` |
-| Kimi K2.5    | kimi-k2.5    | `https://opencode.ai/zen/go/v1/chat/completions` | `@ai-sdk/openai-compatible` |
-| MiniMax M2.5 | minimax-m2.5 | `https://opencode.ai/zen/go/v1/messages`         | `@ai-sdk/anthropic`         |
+| GLM-5        | glm-5        | `https://selene.run/zen/go/v1/chat/completions` | `@ai-sdk/openai-compatible` |
+| Kimi K2.5    | kimi-k2.5    | `https://selene.run/zen/go/v1/chat/completions` | `@ai-sdk/openai-compatible` |
+| MiniMax M2.5 | minimax-m2.5 | `https://selene.run/zen/go/v1/messages`         | `@ai-sdk/anthropic`         |
 
-[Model id](/docs/config/#models) u vašoj OpenCode konfiguraciji
-koristi format `opencode-go/<model-id>`. Na primjer, za Kimi K2.5, biste
-koristili `opencode-go/kimi-k2.5` u vašoj konfiguraciji.
+[Model id](/docs/config/#models) u vašoj Selene konfiguraciji
+koristi format `selene-go/<model-id>`. Na primjer, za Kimi K2.5, biste
+koristili `selene-go/kimi-k2.5` u vašoj konfiguraciji.
 
 ---
 
@@ -151,9 +151,9 @@ Plan je dizajniran prvenstveno za međunarodne korisnike, sa modelima hostovanim
 
 ## Ciljevi
 
-Kreirali smo OpenCode Go da:
+Kreirali smo Selene Go da:
 
 1. Učinimo AI kodiranje **pristupačnim** većem broju ljudi uz povoljnu pretplatu.
 2. Pružimo **pouzdan** pristup najboljim otvorenim modelima kodiranja.
 3. Kurišemo modele koji su **testirani i benchmarkirani** za upotrebu agenata za kodiranje.
-4. Nemamo **zaključavanja (lock-in)** omogućavajući vam da koristite bilo kojeg drugog pružatelja usluga sa OpenCode-om također.
+4. Nemamo **zaključavanja (lock-in)** omogućavajući vam da koristite bilo kojeg drugog pružatelja usluga sa Selene-om također.

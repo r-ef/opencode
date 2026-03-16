@@ -1,6 +1,6 @@
-opencode attach <url>
+selene attach <url>
 
-attach to a running opencode server
+attach to a running selene server
 
 Positionals:
   url  http://localhost:4096                                                     [string] [required]
@@ -14,4 +14,4 @@ Options:
   -c, --continue    continue the last session                                              [boolean]
   -s, --session     session id to continue                                                  [string]
       --fork        fork the session when continuing (use with --continue or --session)    [boolean]
-  -p, --password    basic auth password (defaults to OPENCODE_SERVER_PASSWORD)              [string]
+  -p, --password    basic auth password (defaults to SELENE_SERVER_PASSWORD)              [string]

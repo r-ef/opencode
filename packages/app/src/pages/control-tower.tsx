@@ -1,8 +1,8 @@
-import { Button } from "@opencode-ai/ui/button"
-import { useDialog } from "@opencode-ai/ui/context/dialog"
-import { Icon } from "@opencode-ai/ui/icon"
-import { Spinner } from "@opencode-ai/ui/spinner"
-import { showToast } from "@opencode-ai/ui/toast"
+import { Button } from "@selene-ai/ui/button"
+import { useDialog } from "@selene-ai/ui/context/dialog"
+import { Icon } from "@selene-ai/ui/icon"
+import { Spinner } from "@selene-ai/ui/spinner"
+import { showToast } from "@selene-ai/ui/toast"
 import type {
   FileDiff,
   Message,
@@ -15,9 +15,9 @@ import type {
   TaskBranchRun,
   Todo,
   ToolPart,
-} from "@opencode-ai/sdk/v2/client"
-import { base64Encode } from "@opencode-ai/util/encode"
-import { getFilename } from "@opencode-ai/util/path"
+} from "@selene-ai/sdk/v2/client"
+import { base64Encode } from "@selene-ai/util/encode"
+import { getFilename } from "@selene-ai/util/path"
 import { useNavigate, useParams } from "@solidjs/router"
 import { batch, createEffect, createMemo, createSignal, For, onCleanup, Show, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"

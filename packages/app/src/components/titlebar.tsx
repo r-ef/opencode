@@ -1,11 +1,11 @@
 import { createEffect, createMemo, Show, untrack } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useLocation, useNavigate, useParams } from "@solidjs/router"
-import { IconButton } from "@opencode-ai/ui/icon-button"
-import { Icon } from "@opencode-ai/ui/icon"
-import { Button } from "@opencode-ai/ui/button"
-import { Tooltip, TooltipKeybind } from "@opencode-ai/ui/tooltip"
-import { useTheme } from "@opencode-ai/ui/theme"
+import { IconButton } from "@selene-ai/ui/icon-button"
+import { Icon } from "@selene-ai/ui/icon"
+import { Button } from "@selene-ai/ui/button"
+import { Tooltip, TooltipKeybind } from "@selene-ai/ui/tooltip"
+import { useTheme } from "@selene-ai/ui/theme"
 
 import { useLayout } from "@/context/layout"
 import { usePlatform } from "@/context/platform"
@@ -293,11 +293,11 @@ export function Titlebar() {
             </div>
           </div>
         </div>
-        <div id="opencode-titlebar-left" class="flex items-center gap-3 min-w-0 px-2" />
+        <div id="selene-titlebar-left" class="flex items-center gap-3 min-w-0 px-2" />
       </div>
 
       <div class="min-w-0 flex items-center justify-center pointer-events-none">
-        <div id="opencode-titlebar-center" class="pointer-events-auto w-full min-w-0 flex justify-center lg:w-fit" />
+        <div id="selene-titlebar-center" class="pointer-events-auto w-full min-w-0 flex justify-center lg:w-fit" />
       </div>
 
       <div
@@ -308,7 +308,7 @@ export function Titlebar() {
         data-tauri-drag-region
         onMouseDown={drag}
       >
-        <div id="opencode-titlebar-right" class="flex items-center gap-1 shrink-0 justify-end" />
+        <div id="selene-titlebar-right" class="flex items-center gap-1 shrink-0 justify-end" />
         <Show when={windows()}>
           <div class="w-6 shrink-0" />
           <div data-tauri-decorum-tb class="flex flex-row" />

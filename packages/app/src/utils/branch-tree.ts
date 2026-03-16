@@ -1,4 +1,4 @@
-import type { Session } from "@opencode-ai/sdk/v2/client"
+import type { Session } from "@selene-ai/sdk/v2/client"
 
 export type Row = Pick<
   Session,

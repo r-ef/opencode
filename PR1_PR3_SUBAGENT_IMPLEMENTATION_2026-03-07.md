@@ -38,21 +38,21 @@ Still open after the PR4 follow-up work:
 
 Files added after the original note:
 
-- `packages/opencode/src/task/apply.ts`
+- `packages/selene/src/task/apply.ts`
 
 Additional files updated after the original note:
 
-- `packages/opencode/src/task/recovery.ts`
-- `packages/opencode/src/tool/task.ts`
-- `packages/opencode/test/tool/task.test.ts`
+- `packages/selene/src/task/recovery.ts`
+- `packages/selene/src/tool/task.ts`
+- `packages/selene/test/tool/task.test.ts`
 - `packages/app/src/pages/control-tower.tsx`
-- `packages/opencode/src/cli/cmd/tui/routes/control-tower.tsx`
-- `packages/opencode/src/cli/cmd/tui/routes/session/index.tsx`
+- `packages/selene/src/cli/cmd/tui/routes/control-tower.tsx`
+- `packages/selene/src/cli/cmd/tui/routes/session/index.tsx`
 
 Additional validation run after the original note:
 
-- `cd packages/opencode && bun run typecheck`
-- `cd packages/opencode && bun test --timeout 30000 test/tool/task.test.ts`
+- `cd packages/selene && bun run typecheck`
+- `cd packages/selene && bun test --timeout 30000 test/tool/task.test.ts`
 - `cd packages/app && bun run typecheck`
 
 ---
@@ -85,7 +85,7 @@ Still not implemented in this pass:
 
 ## New backend modules
 
-### `packages/opencode/src/task/event.ts`
+### `packages/selene/src/task/event.ts`
 Added a shared task-event model:
 
 - `TaskEvent.Type`
@@ -94,7 +94,7 @@ Added a shared task-event model:
 
 This provides persisted lifecycle events for both task runs and branch runs.
 
-### `packages/opencode/src/task/run.ts`
+### `packages/selene/src/task/run.ts`
 Added durable single-task run storage and runtime state.
 
 Key additions:
@@ -126,7 +126,7 @@ Key additions:
   - `task.updated`
   - `task.event`
 
-### `packages/opencode/src/task/branch.ts`
+### `packages/selene/src/task/branch.ts`
 Added durable branch/tournament run storage and runtime state.
 
 Key additions:
@@ -163,7 +163,7 @@ Compatibility behavior added:
 - branch state loader normalizes older persisted `task_branch` JSON shape into the new richer `TaskBranch.Info` shape
 - older records that do not yet have `projectID`, `directory`, `rootSessionId`, `events`, `runtime`, or `applied.status` are normalized on read
 
-### `packages/opencode/src/task/lineage.ts`
+### `packages/selene/src/task/lineage.ts`
 Added lineage + permission utilities.
 
 Implemented:
@@ -180,7 +180,7 @@ Implemented:
   - still applies task-specific subagent restrictions
   - still denies todo tools for subagents
 
-### `packages/opencode/src/task/recovery.ts`
+### `packages/selene/src/task/recovery.ts`
 Added stale-run recovery.
 
 Implemented:
@@ -198,7 +198,7 @@ Behavior:
 
 ## Runtime/bootstrap integration
 
-### `packages/opencode/src/project/bootstrap.ts`
+### `packages/selene/src/project/bootstrap.ts`
 Added:
 
 - `TaskRecovery.init()` during instance bootstrap
@@ -211,7 +211,7 @@ Effect:
 
 ## Permission + prompt changes
 
-### `packages/opencode/src/session/prompt.ts`
+### `packages/selene/src/session/prompt.ts`
 Extended prompt input and permission handling.
 
 Implemented:
@@ -231,7 +231,7 @@ Effect:
 
 ## Task tool changes
 
-### `packages/opencode/src/tool/task.ts`
+### `packages/selene/src/tool/task.ts`
 This file was the main integration point.
 
 #### Single-task flow changes
@@ -291,7 +291,7 @@ Updated:
 
 ## New task routes
 
-### `packages/opencode/src/server/routes/task.ts`
+### `packages/selene/src/server/routes/task.ts`
 Added a new route file exposing first-class task APIs.
 
 Implemented APIs:
@@ -318,7 +318,7 @@ Notable behavior:
 - `taskBranch.apply` directly applies the selected winner through the backend API
 - `taskBranch.cancel` directly cancels the tournament and child task runs
 
-### `packages/opencode/src/server/server.ts`
+### `packages/selene/src/server/server.ts`
 Integrated the new route group:
 
 - mounted `TaskRoutes()` at `/task`
@@ -393,7 +393,7 @@ Updated tests to match the simpler helper contract.
 
 ## TUI migration
 
-### `packages/opencode/src/cli/cmd/tui/routes/control-tower.tsx`
+### `packages/selene/src/cli/cmd/tui/routes/control-tower.tsx`
 Migrated task pane to backend task-branch data.
 
 Implemented:
@@ -405,7 +405,7 @@ Implemented:
 - task row state now reflects backend branch status directly
 - apply status is preserved on the run type for future UI use
 
-### `packages/opencode/src/cli/cmd/tui/routes/session/index.tsx`
+### `packages/selene/src/cli/cmd/tui/routes/session/index.tsx`
 Migrated inline task/task-branch tool renderers toward backend task objects.
 
 Implemented:
@@ -426,7 +426,7 @@ This keeps the current good inline UX while reducing dependence on tool-part met
 
 ## Tests added/updated
 
-### `packages/opencode/test/tool/task.test.ts`
+### `packages/selene/test/tool/task.test.ts`
 Added tests for the new structural guarantees.
 
 Added coverage for:
@@ -451,9 +451,9 @@ Updated for the new helper contract after removing tool-scan-based apply inferen
 
 Executed and passed:
 
-### opencode
-- `cd packages/opencode && bun run typecheck`
-- `cd packages/opencode && bun test --timeout 30000 test/tool/task.test.ts`
+### selene
+- `cd packages/selene && bun run typecheck`
+- `cd packages/selene && bun test --timeout 30000 test/tool/task.test.ts`
 
 ### app
 - `cd packages/app && bun run typecheck`
@@ -466,29 +466,29 @@ Executed and passed:
 
 ## Files created in this pass
 
-- `packages/opencode/src/task/event.ts`
-- `packages/opencode/src/task/run.ts`
-- `packages/opencode/src/task/branch.ts`
-- `packages/opencode/src/task/lineage.ts`
-- `packages/opencode/src/task/recovery.ts`
-- `packages/opencode/src/server/routes/task.ts`
+- `packages/selene/src/task/event.ts`
+- `packages/selene/src/task/run.ts`
+- `packages/selene/src/task/branch.ts`
+- `packages/selene/src/task/lineage.ts`
+- `packages/selene/src/task/recovery.ts`
+- `packages/selene/src/server/routes/task.ts`
 
 ---
 
 ## Files modified in this pass
 
-- `packages/opencode/src/project/bootstrap.ts`
-- `packages/opencode/src/session/prompt.ts`
-- `packages/opencode/src/tool/task.ts`
-- `packages/opencode/src/server/server.ts`
-- `packages/opencode/test/tool/task.test.ts`
+- `packages/selene/src/project/bootstrap.ts`
+- `packages/selene/src/session/prompt.ts`
+- `packages/selene/src/tool/task.ts`
+- `packages/selene/src/server/server.ts`
+- `packages/selene/test/tool/task.test.ts`
 - `packages/sdk/js/src/v2/gen/sdk.gen.ts`
 - `packages/sdk/js/src/v2/gen/types.gen.ts`
 - `packages/app/src/pages/control-tower.tsx`
 - `packages/app/src/pages/control-tower-state.ts`
 - `packages/app/src/pages/control-tower-state.test.ts`
-- `packages/opencode/src/cli/cmd/tui/routes/control-tower.tsx`
-- `packages/opencode/src/cli/cmd/tui/routes/session/index.tsx`
+- `packages/selene/src/cli/cmd/tui/routes/control-tower.tsx`
+- `packages/selene/src/cli/cmd/tui/routes/session/index.tsx`
 
 ---
 
@@ -583,23 +583,23 @@ Without that, PR5 will collapse into untyped `data` blobs and fragile consumer l
 #### Files expected to change
 Core backend:
 
-- `packages/opencode/src/task/event.ts`
-- `packages/opencode/src/task/run.ts`
-- `packages/opencode/src/task/branch.ts`
-- `packages/opencode/src/tool/task.ts`
-- `packages/opencode/src/session/processor.ts`
-- `packages/opencode/src/session/prompt.ts`
-- `packages/opencode/src/server/routes/task.ts`
+- `packages/selene/src/task/event.ts`
+- `packages/selene/src/task/run.ts`
+- `packages/selene/src/task/branch.ts`
+- `packages/selene/src/tool/task.ts`
+- `packages/selene/src/session/processor.ts`
+- `packages/selene/src/session/prompt.ts`
+- `packages/selene/src/server/routes/task.ts`
 
 Possibly add:
 
-- `packages/opencode/src/task/watch.ts`
-- `packages/opencode/src/task/stream.ts`
+- `packages/selene/src/task/watch.ts`
+- `packages/selene/src/task/stream.ts`
 
 UI/API consumers:
 
-- `packages/opencode/src/cli/cmd/tui/routes/session/index.tsx`
-- `packages/opencode/src/cli/cmd/tui/routes/control-tower.tsx`
+- `packages/selene/src/cli/cmd/tui/routes/session/index.tsx`
+- `packages/selene/src/cli/cmd/tui/routes/control-tower.tsx`
 - `packages/app/src/pages/control-tower.tsx`
 - `packages/app/src/context/global-sync/*`
 - `packages/app/src/context/sync.tsx`
@@ -727,18 +727,18 @@ Split branch evaluation into three stages:
 3. final winner synthesis
 
 #### Files expected to change
-- `packages/opencode/src/tool/task.ts`
-- `packages/opencode/src/task/branch.ts`
-- `packages/opencode/src/config/config.ts`
-- `packages/opencode/src/server/routes/task.ts`
+- `packages/selene/src/tool/task.ts`
+- `packages/selene/src/task/branch.ts`
+- `packages/selene/src/config/config.ts`
+- `packages/selene/src/server/routes/task.ts`
 - `packages/app/src/pages/control-tower.tsx`
-- `packages/opencode/src/cli/cmd/tui/routes/control-tower.tsx`
+- `packages/selene/src/cli/cmd/tui/routes/control-tower.tsx`
 
 Likely new modules:
 
-- `packages/opencode/src/task/judge.ts`
-- `packages/opencode/src/task/evidence.ts`
-- `packages/opencode/src/task/rubric.ts`
+- `packages/selene/src/task/judge.ts`
+- `packages/selene/src/task/evidence.ts`
+- `packages/selene/src/task/rubric.ts`
 
 #### Deterministic evidence extraction
 Capture structured evidence for each branch:
@@ -849,18 +849,18 @@ Add lifecycle management for:
 - optionally stale shared-context artifacts published by task/branch runs, if retention policy covers them
 
 #### Files expected to change
-- `packages/opencode/src/task/recovery.ts`
-- `packages/opencode/src/task/run.ts`
-- `packages/opencode/src/task/branch.ts`
-- `packages/opencode/src/task/apply.ts`
-- `packages/opencode/src/project/bootstrap.ts`
-- `packages/opencode/src/scheduler/index.ts`
+- `packages/selene/src/task/recovery.ts`
+- `packages/selene/src/task/run.ts`
+- `packages/selene/src/task/branch.ts`
+- `packages/selene/src/task/apply.ts`
+- `packages/selene/src/project/bootstrap.ts`
+- `packages/selene/src/scheduler/index.ts`
 
 Likely new modules:
 
-- `packages/opencode/src/task/gc.ts`
-- `packages/opencode/src/task/repair.ts`
-- optionally a debug/CLI entrypoint such as `packages/opencode/src/cli/cmd/debug/task.ts`
+- `packages/selene/src/task/gc.ts`
+- `packages/selene/src/task/repair.ts`
+- optionally a debug/CLI entrypoint such as `packages/selene/src/cli/cmd/debug/task.ts`
 
 #### Features
 Implement:
@@ -897,10 +897,10 @@ Even with better task infrastructure, broad prompts like “analyze this codebas
 Tune subagent instructions and orchestration guidance for faster, denser, more parallel broad-analysis behavior.
 
 #### Files expected to change
-- `packages/opencode/src/agent/prompt/explore.txt`
-- `packages/opencode/src/tool/task.txt`
-- `packages/opencode/src/session/prompt/codex_header.txt`
-- optionally `packages/opencode/src/agent/agent.ts`
+- `packages/selene/src/agent/prompt/explore.txt`
+- `packages/selene/src/tool/task.txt`
+- `packages/selene/src/session/prompt/codex_header.txt`
+- optionally `packages/selene/src/agent/agent.ts`
 
 #### Behavioral targets
 Subagents should:

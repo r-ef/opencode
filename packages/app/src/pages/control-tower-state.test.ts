@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
-import type { Session } from "@opencode-ai/sdk/v2/client"
-import type { TaskBranchRun } from "@opencode-ai/sdk/v2/client"
+import type { Session } from "@selene-ai/sdk/v2/client"
+import type { TaskBranchRun } from "@selene-ai/sdk/v2/client"
 import { famNote, runEvent, runNote, runPatch } from "./control-tower-state"
 
 const session = (compacting?: number) =>

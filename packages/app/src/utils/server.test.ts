@@ -22,7 +22,7 @@ describe("getBasicAuth", () => {
 
 describe("setSocketAuth", () => {
   test("adds websocket auth to the query string", () => {
-    const url = new URL("ws://opencode@localhost:4096/pty/pty_123/connect")
+    const url = new URL("ws://selene@localhost:4096/pty/pty_123/connect")
     setSocketAuth(url, {
       url: "http://localhost:4096",
       username: "sam",
@@ -39,11 +39,11 @@ describe("sanitizeServer", () => {
   test("extracts embedded credentials from the url", () => {
     expect(
       sanitizeServer({
-        url: "http://opencode:secret@100.72.18.21:5000",
+        url: "http://selene:secret@100.72.18.21:5000",
       }),
     ).toEqual({
       url: "http://100.72.18.21:5000",
-      username: "opencode",
+      username: "selene",
       password: "secret",
     })
   })

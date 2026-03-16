@@ -90,8 +90,8 @@ function installShortcuts() {
 function clearHighlightFind() {
   const api = (globalThis as { CSS?: { highlights?: { delete: (name: string) => void } } }).CSS?.highlights
   if (!api) return
-  api.delete("opencode-find")
-  api.delete("opencode-find-current")
+  api.delete("selene-find")
+  api.delete("selene-find-current")
 }
 
 function supportsHighlights() {
@@ -336,14 +336,14 @@ export function createFileFind(opts: CreateFileFindOptions) {
     const Highlight = (globalThis as unknown as { Highlight?: any }).Highlight
     if (!api || typeof Highlight !== "function") return false
 
-    api.delete("opencode-find")
-    api.delete("opencode-find-current")
+    api.delete("selene-find")
+    api.delete("selene-find-current")
 
     const active = ranges[currentIndex]?.range
-    if (active) api.set("opencode-find-current", new Highlight(active))
+    if (active) api.set("selene-find-current", new Highlight(active))
 
     const rest = ranges.flatMap((hit, i) => (i === currentIndex ? [] : [hit.range]))
-    if (rest.length > 0) api.set("opencode-find", new Highlight(...rest))
+    if (rest.length > 0) api.set("selene-find", new Highlight(...rest))
     return true
   }
 

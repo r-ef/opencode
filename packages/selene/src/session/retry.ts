@@ -1,0 +1,106 @@
+import type { NamedError } from "@selene-ai/util/error"
+import { MessageV2 } from "./message-v2"
+import { iife } from "@/util/iife"
+
+export namespace SessionRetry {
+  export const RETRY_INITIAL_DELAY = 2000
+  export const RETRY_BACKOFF_FACTOR = 2
+  export const RETRY_MAX_DELAY = 30_000 // 30 seconds
+  export const RETRY_MAX_ATTEMPTS = 6
+  export const RETRY_MAX_SLEEP = 2_147_483_647 // max 32-bit signed integer for setTimeout
+
+  function cap(ms: number) {
+    return Math.min(ms, RETRY_MAX_DELAY)
+  }
+
+  export async function sleep(ms: number, signal: AbortSignal): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const abortHandler = () => {
+        clearTimeout(timeout)
+        reject(new DOMException("Aborted", "AbortError"))
+      }
+      const timeout = setTimeout(
+        () => {
+          signal.removeEventListener("abort", abortHandler)
+          resolve()
+        },
+        Math.min(ms, RETRY_MAX_SLEEP),
+      )
+      signal.addEventListener("abort", abortHandler, { once: true })
+    })
+  }
+
+  export function delay(attempt: number, error?: MessageV2.APIError) {
+    if (error) {
+      const headers = error.data.responseHeaders
+      if (headers) {
+        const retryAfterMs = headers["retry-after-ms"]
+        if (retryAfterMs) {
+          const parsedMs = Number.parseFloat(retryAfterMs)
+          if (!Number.isNaN(parsedMs)) {
+            return cap(parsedMs)
+          }
+        }
+
+        const retryAfter = headers["retry-after"]
+        if (retryAfter) {
+          const parsedSeconds = Number.parseFloat(retryAfter)
+          if (!Number.isNaN(parsedSeconds)) {
+            // convert seconds to milliseconds
+            return cap(Math.ceil(parsedSeconds * 1000))
+          }
+          // Try parsing as HTTP date format
+          const parsed = Date.parse(retryAfter) - Date.now()
+          if (!Number.isNaN(parsed) && parsed > 0) {
+            return cap(Math.ceil(parsed))
+          }
+        }
+
+        return cap(RETRY_INITIAL_DELAY * Math.pow(RETRY_BACKOFF_FACTOR, attempt - 1))
+      }
+    }
+
+    return cap(RETRY_INITIAL_DELAY * Math.pow(RETRY_BACKOFF_FACTOR, attempt - 1))
+  }
+
+  export function retryable(error: ReturnType<NamedError["toObject"]>) {
+    // context overflow errors should not be retried
+    if (MessageV2.ContextOverflowError.isInstance(error)) return undefined
+    if (MessageV2.APIError.isInstance(error)) {
+      if (!error.data.isRetryable) return undefined
+      if (error.data.responseBody?.includes("FreeUsageLimitError"))
+        return `Free usage exceeded, add credits https://selene.run/zen`
+      return error.data.message.includes("Overloaded") ? "Provider is overloaded" : error.data.message
+    }
+
+    const json = iife(() => {
+      try {
+        if (typeof error.data?.message === "string") {
+          const parsed = JSON.parse(error.data.message)
+          return parsed
+        }
+
+        return JSON.parse(error.data.message)
+      } catch {
+        return undefined
+      }
+    })
+    try {
+      if (!json || typeof json !== "object") return undefined
+      const code = typeof json.code === "string" ? json.code : ""
+
+      if (json.type === "error" && json.error?.type === "too_many_requests") {
+        return "Too Many Requests"
+      }
+      if (code.includes("exhausted") || code.includes("unavailable")) {
+        return "Provider is overloaded"
+      }
+      if (json.type === "error" && json.error?.code?.includes("rate_limit")) {
+        return "Rate Limited"
+      }
+      return JSON.stringify(json)
+    } catch {
+      return undefined
+    }
+  }
+}

@@ -1,11 +1,11 @@
 import "@/index.css"
-import { File } from "@opencode-ai/ui/file"
-import { I18nProvider } from "@opencode-ai/ui/context"
-import { DialogProvider } from "@opencode-ai/ui/context/dialog"
-import { FileComponentProvider } from "@opencode-ai/ui/context/file"
-import { MarkedProvider } from "@opencode-ai/ui/context/marked"
-import { Font } from "@opencode-ai/ui/font"
-import { ThemeProvider } from "@opencode-ai/ui/theme"
+import { File } from "@selene-ai/ui/file"
+import { I18nProvider } from "@selene-ai/ui/context"
+import { DialogProvider } from "@selene-ai/ui/context/dialog"
+import { FileComponentProvider } from "@selene-ai/ui/context/file"
+import { MarkedProvider } from "@selene-ai/ui/context/marked"
+import { Font } from "@selene-ai/ui/font"
+import { ThemeProvider } from "@selene-ai/ui/theme"
 import { MetaProvider } from "@solidjs/meta"
 import { BaseRouterProps, Navigate, Route, Router } from "@solidjs/router"
 import { Component, ErrorBoundary, type JSX, lazy, type ParentProps, Show, Suspense } from "solid-js"
@@ -64,7 +64,7 @@ function UiI18nBridge(props: ParentProps) {
 
 declare global {
   interface Window {
-    __OPENCODE__?: {
+    __SELENE__?: {
       updaterEnabled?: boolean
       deepLinks?: string[]
       wsl?: boolean

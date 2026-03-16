@@ -1,11 +1,11 @@
-import { Dialog } from "@opencode-ai/ui/dialog"
-import { List } from "@opencode-ai/ui/list"
-import type { Session } from "@opencode-ai/sdk/v2/client"
+import { Dialog } from "@selene-ai/ui/dialog"
+import { List } from "@selene-ai/ui/list"
+import type { Session } from "@selene-ai/sdk/v2/client"
 import { useNavigate, useParams } from "@solidjs/router"
 import { createEffect, createMemo, createResource, onCleanup, type Component } from "solid-js"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
-import { base64Encode } from "@opencode-ai/util/encode"
+import { base64Encode } from "@selene-ai/util/encode"
 import { build, type Row } from "@/utils/branch-tree"
 
 function tag(input: { current: boolean; root: boolean }) {

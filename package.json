@@ -1,16 +1,16 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
-  "name": "opencode",
+  "name": "selene",
   "description": "AI-powered development tool",
   "private": true,
   "type": "module",
   "packageManager": "bun@1.3.10",
   "scripts": {
-    "dev": "bun run --cwd packages/opencode --conditions=browser src/index.ts",
+    "dev": "bun run --cwd packages/selene --conditions=browser src/index.ts",
     "dev:desktop": "bun --cwd packages/desktop tauri dev",
     "dev:web": "bun --cwd packages/app dev",
-    "dev:web:local": "VITE_OPENCODE_SERVER_HOST=127.0.0.1 VITE_OPENCODE_SERVER_PORT=4096 bun --cwd packages/app dev --host 0.0.0.0 --port 4444",
-    "dev:all:web": "sh -c 'bun run dev -- serve --hostname 0.0.0.0 --port 4096 & pid=$!; trap \"kill $pid\" EXIT INT TERM; VITE_OPENCODE_SERVER_HOST=127.0.0.1 VITE_OPENCODE_SERVER_PORT=4096 bun run dev:web -- --host 0.0.0.0 --port 4444'",
+    "dev:web:local": "VITE_SELENE_SERVER_HOST=127.0.0.1 VITE_SELENE_SERVER_PORT=4096 bun --cwd packages/app dev --host 0.0.0.0 --port 4444",
+    "dev:all:web": "sh -c 'bun run dev -- serve --hostname 0.0.0.0 --port 4096 & pid=$!; trap \"kill $pid\" EXIT INT TERM; VITE_SELENE_SERVER_HOST=127.0.0.1 VITE_SELENE_SERVER_PORT=4096 bun run dev:web -- --host 0.0.0.0 --port 4444'",
     "dev:storybook": "bun --cwd packages/storybook storybook",
     "typecheck": "bun turbo typecheck",
     "prepare": "husky",
@@ -83,14 +83,14 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "3.933.0",
-    "@opencode-ai/plugin": "workspace:*",
-    "@opencode-ai/script": "workspace:*",
-    "@opencode-ai/sdk": "workspace:*",
+    "@selene-ai/plugin": "workspace:*",
+    "@selene-ai/script": "workspace:*",
+    "@selene-ai/sdk": "workspace:*",
     "typescript": "catalog:"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/anomalyco/opencode"
+    "url": "https://github.com/anomalyco/selene"
   },
   "license": "MIT",
   "prettier": {

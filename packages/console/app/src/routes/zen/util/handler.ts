@@ -1,19 +1,19 @@
 import type { APIEvent } from "@solidjs/start/server"
-import { and, Database, eq, isNull, lt, or, sql } from "@opencode-ai/console-core/drizzle/index.js"
-import { KeyTable } from "@opencode-ai/console-core/schema/key.sql.js"
-import { BillingTable, LiteTable, SubscriptionTable, UsageTable } from "@opencode-ai/console-core/schema/billing.sql.js"
-import { centsToMicroCents } from "@opencode-ai/console-core/util/price.js"
-import { getMonthlyBounds, getWeekBounds } from "@opencode-ai/console-core/util/date.js"
-import { Identifier } from "@opencode-ai/console-core/identifier.js"
-import { Billing } from "@opencode-ai/console-core/billing.js"
-import { Actor } from "@opencode-ai/console-core/actor.js"
-import { WorkspaceTable } from "@opencode-ai/console-core/schema/workspace.sql.js"
-import { ZenData } from "@opencode-ai/console-core/model.js"
-import { Subscription } from "@opencode-ai/console-core/subscription.js"
-import { BlackData } from "@opencode-ai/console-core/black.js"
-import { UserTable } from "@opencode-ai/console-core/schema/user.sql.js"
-import { ModelTable } from "@opencode-ai/console-core/schema/model.sql.js"
-import { ProviderTable } from "@opencode-ai/console-core/schema/provider.sql.js"
+import { and, Database, eq, isNull, lt, or, sql } from "@selene-ai/console-core/drizzle/index.js"
+import { KeyTable } from "@selene-ai/console-core/schema/key.sql.js"
+import { BillingTable, LiteTable, SubscriptionTable, UsageTable } from "@selene-ai/console-core/schema/billing.sql.js"
+import { centsToMicroCents } from "@selene-ai/console-core/util/price.js"
+import { getMonthlyBounds, getWeekBounds } from "@selene-ai/console-core/util/date.js"
+import { Identifier } from "@selene-ai/console-core/identifier.js"
+import { Billing } from "@selene-ai/console-core/billing.js"
+import { Actor } from "@selene-ai/console-core/actor.js"
+import { WorkspaceTable } from "@selene-ai/console-core/schema/workspace.sql.js"
+import { ZenData } from "@selene-ai/console-core/model.js"
+import { Subscription } from "@selene-ai/console-core/subscription.js"
+import { BlackData } from "@selene-ai/console-core/black.js"
+import { UserTable } from "@selene-ai/console-core/schema/user.sql.js"
+import { ModelTable } from "@selene-ai/console-core/schema/model.sql.js"
+import { ProviderTable } from "@selene-ai/console-core/schema/provider.sql.js"
 import { logger } from "./logger"
 import {
   AuthError,
@@ -33,8 +33,8 @@ import { createRateLimiter } from "./rateLimiter"
 import { createDataDumper } from "./dataDumper"
 import { createTrialLimiter } from "./trialLimiter"
 import { createStickyTracker } from "./stickyProviderTracker"
-import { LiteData } from "@opencode-ai/console-core/lite.js"
-import { Resource } from "@opencode-ai/console-resource"
+import { LiteData } from "@selene-ai/console-core/lite.js"
+import { Resource } from "@selene-ai/console-resource"
 import { i18n, type Key } from "~/i18n"
 import { localeFromRequest } from "~/lib/language"
 
@@ -75,7 +75,7 @@ export async function handler(
   const t = (key: Key, params?: Record<string, string | number>) => resolve(dict[key], params)
   const ADMIN_WORKSPACES = [
     "wrk_01K46JDFR0E75SG2Q8K172KF3Y", // frank
-    "wrk_01K6W1A3VE0KMNVSCQT43BG2SX", // opencode bench
+    "wrk_01K6W1A3VE0KMNVSCQT43BG2SX", // selene bench
   ]
 
   try {
@@ -84,10 +84,10 @@ export async function handler(
     const model = opts.parseModel(url, body)
     const isStream = opts.parseIsStream(url, body)
     const ip = input.request.headers.get("x-real-ip") ?? ""
-    const sessionId = input.request.headers.get("x-opencode-session") ?? ""
-    const requestId = input.request.headers.get("x-opencode-request") ?? ""
-    const projectId = input.request.headers.get("x-opencode-project") ?? ""
-    const ocClient = input.request.headers.get("x-opencode-client") ?? ""
+    const sessionId = input.request.headers.get("x-selene-session") ?? ""
+    const requestId = input.request.headers.get("x-selene-request") ?? ""
+    const projectId = input.request.headers.get("x-selene-project") ?? ""
+    const ocClient = input.request.headers.get("x-selene-client") ?? ""
     logger.metric({
       is_tream: isStream,
       session: sessionId,
@@ -146,10 +146,10 @@ export async function handler(
           })
           headers.delete("host")
           headers.delete("content-length")
-          headers.delete("x-opencode-request")
-          headers.delete("x-opencode-session")
-          headers.delete("x-opencode-project")
-          headers.delete("x-opencode-client")
+          headers.delete("x-selene-request")
+          headers.delete("x-selene-session")
+          headers.delete("x-selene-project")
+          headers.delete("x-selene-client")
           return headers
         })(),
         body: reqBody,
@@ -691,8 +691,8 @@ export async function handler(
 
     // Validate pay as you go billing
     const billing = authInfo.billing
-    const billingUrl = `https://opencode.ai/workspace/${authInfo.workspaceID}/billing`
-    const membersUrl = `https://opencode.ai/workspace/${authInfo.workspaceID}/members`
+    const billingUrl = `https://selene.run/workspace/${authInfo.workspaceID}/billing`
+    const membersUrl = `https://selene.run/workspace/${authInfo.workspaceID}/members`
     if (!billing.paymentMethodID) throw new CreditsError(t("zen.api.error.noPaymentMethod", { billingUrl }))
     if (billing.balance <= 0) throw new CreditsError(t("zen.api.error.insufficientBalance", { billingUrl }))
 

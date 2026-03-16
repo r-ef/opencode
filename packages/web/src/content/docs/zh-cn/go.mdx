@@ -7,13 +7,13 @@ import config from "../../../../config.mjs"
 export const console = config.console
 export const email = `mailto:${config.email}`
 
-OpenCode Go 是一项低成本的订阅服务（**$10/月**），为您提供对流行开源编程模型的可靠访问。
+Selene Go 是一项低成本的订阅服务（**$10/月**），为您提供对流行开源编程模型的可靠访问。
 
 :::note
-OpenCode Go 目前处于测试阶段。
+Selene Go 目前处于测试阶段。
 :::
 
-Go 的工作方式与 OpenCode 中的其他提供商一样。您订阅 OpenCode Go 并获取 API 密钥。这是**完全可选的**，您不需要它也能使用 OpenCode。
+Go 的工作方式与 Selene 中的其他提供商一样。您订阅 Selene Go 并获取 API 密钥。这是**完全可选的**，您不需要它也能使用 Selene。
 
 它主要为国际用户设计，模型托管在美国、欧盟和新加坡，以确保稳定的全球访问。
 
@@ -26,7 +26,7 @@ Go 的工作方式与 OpenCode 中的其他提供商一样。您订阅 OpenCode 
 然而，获得可靠、低延迟的访问可能很困难。提供商的质量和可用性各不相同。
 
 :::tip
-我们测试了一组精选的模型和提供商，它们与 OpenCode 配合良好。
+我们测试了一组精选的模型和提供商，它们与 Selene 配合良好。
 :::
 
 为了解决这个问题，我们做了一些事情：
@@ -35,20 +35,20 @@ Go 的工作方式与 OpenCode 中的其他提供商一样。您订阅 OpenCode 
 2. 然后，我们与几家提供商合作，确保这些模型得到正确的服务。
 3. 最后，我们对模型/提供商的组合进行了基准测试，并得出了一个我们乐于推荐的列表。
 
-OpenCode Go 让您可以以 **$10/月** 的价格访问这些模型。
+Selene Go 让您可以以 **$10/月** 的价格访问这些模型。
 
 ---
 
 ## 工作原理
 
-OpenCode Go 的工作方式与 OpenCode 中的其他提供商一样。
+Selene Go 的工作方式与 Selene 中的其他提供商一样。
 
-1. 登录 **<a href={console}>OpenCode Zen</a>**，订阅 Go，并复制您的 API 密钥。
-2. 在 TUI 中运行 `/connect` 命令，选择 `OpenCode Go`，然后粘贴您的 API 密钥。
+1. 登录 **<a href={console}>Selene Zen</a>**，订阅 Go，并复制您的 API 密钥。
+2. 在 TUI 中运行 `/connect` 命令，选择 `Selene Go`，然后粘贴您的 API 密钥。
 3. 在 TUI 中运行 `/models` 以查看通过 Go 可用的模型列表。
 
 :::note
-每个工作区只有一名成员可以订阅 OpenCode Go。
+每个工作区只有一名成员可以订阅 Selene Go。
 :::
 
 目前的模型列表包括：
@@ -63,7 +63,7 @@ OpenCode Go 的工作方式与 OpenCode 中的其他提供商一样。
 
 ## 使用限制
 
-OpenCode Go 包含以下限制：
+Selene Go 包含以下限制：
 
 - **5 小时限制** — $12 的使用量
 - **每周限制** — $30 的使用量
@@ -97,7 +97,7 @@ OpenCode Go 包含以下限制：
 
 ### 定价
 
-OpenCode Go 是一个 **$10/月** 的订阅计划。以下是**每 1M token** 的价格。
+Selene Go 是一个 **$10/月** 的订阅计划。以下是**每 1M token** 的价格。
 
 | Model        | Input | Output | Cached Read |
 | ------------ | ----- | ------ | ----------- |
@@ -119,11 +119,11 @@ OpenCode Go 是一个 **$10/月** 的订阅计划。以下是**每 1M token** �
 
 | Model        | Model ID     | Endpoint                                         | AI SDK Package              |
 | ------------ | ------------ | ------------------------------------------------ | --------------------------- |
-| GLM-5        | glm-5        | `https://opencode.ai/zen/go/v1/chat/completions` | `@ai-sdk/openai-compatible` |
-| Kimi K2.5    | kimi-k2.5    | `https://opencode.ai/zen/go/v1/chat/completions` | `@ai-sdk/openai-compatible` |
-| MiniMax M2.5 | minimax-m2.5 | `https://opencode.ai/zen/go/v1/messages`         | `@ai-sdk/anthropic`         |
+| GLM-5        | glm-5        | `https://selene.run/zen/go/v1/chat/completions` | `@ai-sdk/openai-compatible` |
+| Kimi K2.5    | kimi-k2.5    | `https://selene.run/zen/go/v1/chat/completions` | `@ai-sdk/openai-compatible` |
+| MiniMax M2.5 | minimax-m2.5 | `https://selene.run/zen/go/v1/messages`         | `@ai-sdk/anthropic`         |
 
-OpenCode 配置中的 [model id](/docs/config/#models) 使用 `opencode-go/<model-id>` 格式。例如，对于 Kimi K2.5，您将在配置中使用 `opencode-go/kimi-k2.5`。
+Selene 配置中的 [model id](/docs/config/#models) 使用 `selene-go/<model-id>` 格式。例如，对于 Kimi K2.5，您将在配置中使用 `selene-go/kimi-k2.5`。
 
 ---
 
@@ -137,9 +137,9 @@ OpenCode 配置中的 [model id](/docs/config/#models) 使用 `opencode-go/<mode
 
 ## 目标
 
-我们要创建 OpenCode Go 以：
+我们要创建 Selene Go 以：
 
 1. 通过低成本订阅让更多人**获得** AI 编程能力。
 2. 提供对最佳开源编程模型的**可靠**访问。
 3. 策划经过**测试和基准测试**的、适合编程代理使用的模型。
-4. **无锁定**，允许您在 OpenCode 中使用任何其他提供商。
+4. **无锁定**，允许您在 Selene 中使用任何其他提供商。

@@ -1,4 +1,4 @@
-import { createOpencodeClient } from "@opencode-ai/sdk/v2/client"
+import { createSeleneClient } from "@selene-ai/sdk/v2/client"
 import type { ServerConnection } from "@/context/server"
 import { normalizeServerUrl } from "@/context/server"
 
@@ -17,7 +17,7 @@ export function sanitizeServer(server: ServerConnection.HttpBase): ServerConnect
 export function getBasicAuth(server: ServerConnection.HttpBase) {
   const next = sanitizeServer(server)
   if (!next.password) return
-  return `Basic ${btoa(`${next.username ?? "opencode"}:${next.password}`)}`
+  return `Basic ${btoa(`${next.username ?? "selene"}:${next.password}`)}`
 }
 
 export function setSocketAuth(url: URL, server?: ServerConnection.HttpBase) {
@@ -33,13 +33,13 @@ export function setSocketAuth(url: URL, server?: ServerConnection.HttpBase) {
 export function createSdkForServer({
   server,
   ...config
-}: Omit<NonNullable<Parameters<typeof createOpencodeClient>[0]>, "baseUrl"> & {
+}: Omit<NonNullable<Parameters<typeof createSeleneClient>[0]>, "baseUrl"> & {
   server: ServerConnection.HttpBase
 }) {
   const next = sanitizeServer(server)
   const auth = getBasicAuth(next)
 
-  return createOpencodeClient({
+  return createSeleneClient({
     ...config,
     headers: { ...config.headers, ...(auth ? { Authorization: auth } : {}) },
     baseUrl: next.url,

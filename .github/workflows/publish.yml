@@ -33,7 +33,7 @@ permissions:
 jobs:
   version:
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    if: github.repository == 'anomalyco/opencode'
+    if: github.repository == 'anomalyco/selene'
     steps:
       - uses: actions/checkout@v3
         with:
@@ -45,22 +45,22 @@ jobs:
         id: committer
         uses: ./.github/actions/setup-git-committer
         with:
-          opencode-app-id: ${{ vars.OPENCODE_APP_ID }}
-          opencode-app-secret: ${{ secrets.OPENCODE_APP_SECRET }}
+          selene-app-id: ${{ vars.SELENE_APP_ID }}
+          selene-app-secret: ${{ secrets.SELENE_APP_SECRET }}
 
-      - name: Install OpenCode
+      - name: Install Selene
         if: inputs.bump || inputs.version
-        run: bun i -g opencode-ai
+        run: bun i -g selene-ai
 
       - id: version
         run: |
           ./script/version.ts
         env:
           GH_TOKEN: ${{ steps.committer.outputs.token }}
-          OPENCODE_BUMP: ${{ inputs.bump }}
-          OPENCODE_VERSION: ${{ inputs.version }}
-          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
-          GH_REPO: ${{ (github.ref_name == 'beta' && 'anomalyco/opencode-beta') || github.repository }}
+          SELENE_BUMP: ${{ inputs.bump }}
+          SELENE_VERSION: ${{ inputs.version }}
+          SELENE_API_KEY: ${{ secrets.SELENE_API_KEY }}
+          GH_REPO: ${{ (github.ref_name == 'beta' && 'anomalyco/selene-beta') || github.repository }}
     outputs:
       version: ${{ steps.version.outputs.version }}
       release: ${{ steps.version.outputs.release }}
@@ -70,7 +70,7 @@ jobs:
   build-cli:
     needs: version
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    if: github.repository == 'anomalyco/opencode'
+    if: github.repository == 'anomalyco/selene'
     steps:
       - uses: actions/checkout@v3
         with:
@@ -82,23 +82,23 @@ jobs:
         id: committer
         uses: ./.github/actions/setup-git-committer
         with:
-          opencode-app-id: ${{ vars.OPENCODE_APP_ID }}
-          opencode-app-secret: ${{ secrets.OPENCODE_APP_SECRET }}
+          selene-app-id: ${{ vars.SELENE_APP_ID }}
+          selene-app-secret: ${{ secrets.SELENE_APP_SECRET }}
 
       - name: Build
         id: build
         run: |
-          ./packages/opencode/script/build.ts
+          ./packages/selene/script/build.ts
         env:
-          OPENCODE_VERSION: ${{ needs.version.outputs.version }}
-          OPENCODE_RELEASE: ${{ needs.version.outputs.release }}
+          SELENE_VERSION: ${{ needs.version.outputs.version }}
+          SELENE_RELEASE: ${{ needs.version.outputs.release }}
           GH_REPO: ${{ needs.version.outputs.repo }}
           GH_TOKEN: ${{ steps.committer.outputs.token }}
 
       - uses: actions/upload-artifact@v4
         with:
-          name: opencode-cli
-          path: packages/opencode/dist
+          name: selene-cli
+          path: packages/selene/dist
     outputs:
       version: ${{ needs.version.outputs.version }}
 
@@ -181,7 +181,7 @@ jobs:
           cd packages/desktop
           bun ./scripts/prepare.ts
         env:
-          OPENCODE_VERSION: ${{ needs.version.outputs.version }}
+          SELENE_VERSION: ${{ needs.version.outputs.version }}
           GITHUB_TOKEN: ${{ steps.committer.outputs.token }}
           RUST_TARGET: ${{ matrix.settings.target }}
           GH_TOKEN: ${{ github.token }}
@@ -209,8 +209,8 @@ jobs:
         id: committer
         uses: ./.github/actions/setup-git-committer
         with:
-          opencode-app-id: ${{ vars.OPENCODE_APP_ID }}
-          opencode-app-secret: ${{ secrets.OPENCODE_APP_SECRET }}
+          selene-app-id: ${{ vars.SELENE_APP_ID }}
+          selene-app-secret: ${{ secrets.SELENE_APP_SECRET }}
 
       - name: Build and upload artifacts
         uses: tauri-apps/tauri-action@390cbe447412ced1303d35abe75287949e43437a
@@ -224,8 +224,8 @@ jobs:
           releaseId: ${{ needs.version.outputs.release }}
           tagName: ${{ needs.version.outputs.tag }}
           releaseDraft: true
-          releaseAssetNamePattern: opencode-desktop-[platform]-[arch][ext]
-          repo: ${{ (github.ref_name == 'beta' && 'opencode-beta') || '' }}
+          releaseAssetNamePattern: selene-desktop-[platform]-[arch][ext]
+          repo: ${{ (github.ref_name == 'beta' && 'selene-beta') || '' }}
           releaseCommitish: ${{ github.sha }}
         env:
           GITHUB_TOKEN: ${{ steps.committer.outputs.token }}
@@ -306,15 +306,15 @@ jobs:
         id: committer
         uses: ./.github/actions/setup-git-committer
         with:
-          opencode-app-id: ${{ vars.OPENCODE_APP_ID }}
-          opencode-app-secret: ${{ secrets.OPENCODE_APP_SECRET }}
+          selene-app-id: ${{ vars.SELENE_APP_ID }}
+          selene-app-secret: ${{ secrets.SELENE_APP_SECRET }}
 
       - name: Prepare
         run: bun ./scripts/prepare.ts
         working-directory: packages/desktop-electron
         env:
-          OPENCODE_VERSION: ${{ needs.version.outputs.version }}
-          OPENCODE_CHANNEL: ${{ (github.ref_name == 'beta' && 'beta') || 'prod' }}
+          SELENE_VERSION: ${{ needs.version.outputs.version }}
+          SELENE_CHANNEL: ${{ (github.ref_name == 'beta' && 'beta') || 'prod' }}
           RUST_TARGET: ${{ matrix.settings.target }}
           GH_TOKEN: ${{ github.token }}
           GITHUB_RUN_ID: ${{ github.run_id }}
@@ -323,7 +323,7 @@ jobs:
         run: bun run build
         working-directory: packages/desktop-electron
         env:
-          OPENCODE_CHANNEL: ${{ (github.ref_name == 'beta' && 'beta') || 'prod' }}
+          SELENE_CHANNEL: ${{ (github.ref_name == 'beta' && 'beta') || 'prod' }}
 
       - name: Package and publish
         if: needs.version.outputs.release
@@ -331,7 +331,7 @@ jobs:
         working-directory: packages/desktop-electron
         timeout-minutes: 60
         env:
-          OPENCODE_CHANNEL: ${{ (github.ref_name == 'beta' && 'beta') || 'prod' }}
+          SELENE_CHANNEL: ${{ (github.ref_name == 'beta' && 'beta') || 'prod' }}
           GH_TOKEN: ${{ steps.committer.outputs.token }}
           CSC_LINK: ${{ secrets.APPLE_CERTIFICATE }}
           CSC_KEY_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -345,11 +345,11 @@ jobs:
         working-directory: packages/desktop-electron
         timeout-minutes: 60
         env:
-          OPENCODE_CHANNEL: ${{ (github.ref_name == 'beta' && 'beta') || 'prod' }}
+          SELENE_CHANNEL: ${{ (github.ref_name == 'beta' && 'beta') || 'prod' }}
 
       - uses: actions/upload-artifact@v4
         with:
-          name: opencode-electron-${{ matrix.settings.target }}
+          name: selene-electron-${{ matrix.settings.target }}
           path: packages/desktop-electron/dist/*
 
       - uses: actions/upload-artifact@v4
@@ -392,13 +392,13 @@ jobs:
         id: committer
         uses: ./.github/actions/setup-git-committer
         with:
-          opencode-app-id: ${{ vars.OPENCODE_APP_ID }}
-          opencode-app-secret: ${{ secrets.OPENCODE_APP_SECRET }}
+          selene-app-id: ${{ vars.SELENE_APP_ID }}
+          selene-app-secret: ${{ secrets.SELENE_APP_SECRET }}
 
       - uses: actions/download-artifact@v4
         with:
-          name: opencode-cli
-          path: packages/opencode/dist
+          name: selene-cli
+          path: packages/selene/dist
 
       - uses: actions/download-artifact@v4
         if: needs.version.outputs.release
@@ -421,14 +421,14 @@ jobs:
           mkdir -p ~/.ssh
           echo "${{ secrets.AUR_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          git config --global user.email "opencode@sst.dev"
-          git config --global user.name "opencode"
+          git config --global user.email "selene@sst.dev"
+          git config --global user.name "selene"
           ssh-keyscan -H aur.archlinux.org >> ~/.ssh/known_hosts || true
 
       - run: ./script/publish.ts
         env:
-          OPENCODE_VERSION: ${{ needs.version.outputs.version }}
-          OPENCODE_RELEASE: ${{ needs.version.outputs.release }}
+          SELENE_VERSION: ${{ needs.version.outputs.version }}
+          SELENE_RELEASE: ${{ needs.version.outputs.release }}
           AUR_KEY: ${{ secrets.AUR_KEY }}
           GITHUB_TOKEN: ${{ steps.committer.outputs.token }}
           GH_REPO: ${{ needs.version.outputs.repo }}

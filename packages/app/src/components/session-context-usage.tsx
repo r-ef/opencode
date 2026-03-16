@@ -1,7 +1,7 @@
 import { Match, Show, Switch, createMemo } from "solid-js"
-import { Tooltip, type TooltipProps } from "@opencode-ai/ui/tooltip"
-import { ProgressCircle } from "@opencode-ai/ui/progress-circle"
-import { Button } from "@opencode-ai/ui/button"
+import { Tooltip, type TooltipProps } from "@selene-ai/ui/tooltip"
+import { ProgressCircle } from "@selene-ai/ui/progress-circle"
+import { Button } from "@selene-ai/ui/button"
 import { useParams } from "@solidjs/router"
 
 import { useLayout } from "@/context/layout"

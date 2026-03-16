@@ -44,7 +44,7 @@ async function waitForHealth(url: string) {
 
 const appDir = process.cwd()
 const repoDir = path.resolve(appDir, "../..")
-const opencodeDir = path.join(repoDir, "packages", "opencode")
+const opencodeDir = path.join(repoDir, "packages", "selene")
 
 const extraArgs = (() => {
   const args = process.argv.slice(2)
@@ -54,33 +54,33 @@ const extraArgs = (() => {
 
 const [serverPort, webPort] = await Promise.all([freePort(), freePort()])
 
-const sandbox = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-e2e-"))
-const keepSandbox = process.env.OPENCODE_E2E_KEEP_SANDBOX === "1"
+const sandbox = await fs.mkdtemp(path.join(os.tmpdir(), "selene-e2e-"))
+const keepSandbox = process.env.SELENE_E2E_KEEP_SANDBOX === "1"
 
 const serverEnv = {
   ...process.env,
-  OPENCODE_DISABLE_SHARE: process.env.OPENCODE_DISABLE_SHARE ?? "true",
-  OPENCODE_DISABLE_LSP_DOWNLOAD: "true",
-  OPENCODE_DISABLE_DEFAULT_PLUGINS: "true",
-  OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER: "true",
-  OPENCODE_TEST_HOME: path.join(sandbox, "home"),
+  SELENE_DISABLE_SHARE: process.env.SELENE_DISABLE_SHARE ?? "true",
+  SELENE_DISABLE_LSP_DOWNLOAD: "true",
+  SELENE_DISABLE_DEFAULT_PLUGINS: "true",
+  SELENE_EXPERIMENTAL_DISABLE_FILEWATCHER: "true",
+  SELENE_TEST_HOME: path.join(sandbox, "home"),
   XDG_DATA_HOME: path.join(sandbox, "share"),
   XDG_CACHE_HOME: path.join(sandbox, "cache"),
   XDG_CONFIG_HOME: path.join(sandbox, "config"),
   XDG_STATE_HOME: path.join(sandbox, "state"),
-  OPENCODE_E2E_PROJECT_DIR: repoDir,
-  OPENCODE_E2E_SESSION_TITLE: "E2E Session",
-  OPENCODE_E2E_MESSAGE: "Seeded for UI e2e",
-  OPENCODE_E2E_MODEL: "opencode/gpt-5-nano",
-  OPENCODE_CLIENT: "app",
+  SELENE_E2E_PROJECT_DIR: repoDir,
+  SELENE_E2E_SESSION_TITLE: "E2E Session",
+  SELENE_E2E_MESSAGE: "Seeded for UI e2e",
+  SELENE_E2E_MODEL: "selene/gpt-5-nano",
+  SELENE_CLIENT: "app",
 } satisfies Record<string, string>
 
 const runnerEnv = {
   ...serverEnv,
   PLAYWRIGHT_SERVER_HOST: "127.0.0.1",
   PLAYWRIGHT_SERVER_PORT: String(serverPort),
-  VITE_OPENCODE_SERVER_HOST: "127.0.0.1",
-  VITE_OPENCODE_SERVER_PORT: String(serverPort),
+  VITE_SELENE_SERVER_HOST: "127.0.0.1",
+  VITE_SELENE_SERVER_PORT: String(serverPort),
   PLAYWRIGHT_PORT: String(webPort),
 } satisfies Record<string, string>
 
@@ -144,21 +144,21 @@ try {
   } else {
     Object.assign(process.env, serverEnv)
     process.env.AGENT = "1"
-    process.env.OPENCODE = "1"
-    process.env.OPENCODE_PID = String(process.pid)
+    process.env.SELENE = "1"
+    process.env.SELENE_PID = String(process.pid)
 
-    const log = await import("../../opencode/src/util/log")
-    const install = await import("../../opencode/src/installation")
+    const log = await import("../../selene/src/util/log")
+    const install = await import("../../selene/src/installation")
     await log.Log.init({
       print: true,
       dev: install.Installation.isLocal(),
       level: "WARN",
     })
 
-    const servermod = await import("../../opencode/src/server/server")
-    inst = await import("../../opencode/src/project/instance")
+    const servermod = await import("../../selene/src/server/server")
+    inst = await import("../../selene/src/project/instance")
     server = servermod.Server.listen({ port: serverPort, hostname: "127.0.0.1" })
-    console.log(`opencode server listening on http://127.0.0.1:${serverPort}`)
+    console.log(`selene server listening on http://127.0.0.1:${serverPort}`)
 
     await waitForHealth(`http://127.0.0.1:${serverPort}/global/health`)
     runner = Bun.spawn(["bun", "test:e2e", ...extraArgs], {
