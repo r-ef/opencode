@@ -546,26 +546,27 @@ export namespace SessionCoordinator {
       if (run.status === "running" && due > beat && due > now()) continue
       dirty = true
       if (run.status === "running") await TaskRun.interrupt(item.session_id!, "Coordinator workstream timed out.")
-      Database.use((db) =>
-        db
-          .update(SessionCoordinatorWorkTable)
-          .set({
-            status: "failed",
-            metadata: {
-              ...(item.metadata ?? {}),
-              error: run.status === "running" ? "Coordinator workstream timed out." : run.error ?? `Task ${run.status}.`,
-              summary: run.status === "running" ? "Coordinator workstream timed out." : run.error ?? `Task ${run.status}.`,
-              timeout_at: now() + WORK_TIMEOUT,
-            },
-            time_updated: now(),
-          })
-          .where(eq(SessionCoordinatorWorkTable.id, item.id))
-          .run(),
-      )
+      Database.transaction(() => {
+        Database.use((db) =>
+          db
+            .update(SessionCoordinatorWorkTable)
+            .set({
+              status: "failed",
+              metadata: {
+                ...(item.metadata ?? {}),
+                error: run.status === "running" ? "Coordinator workstream timed out." : run.error ?? `Task ${run.status}.`,
+                summary: run.status === "running" ? "Coordinator workstream timed out." : run.error ?? `Task ${run.status}.`,
+                timeout_at: now() + WORK_TIMEOUT,
+              },
+              time_updated: now(),
+            })
+            .where(eq(SessionCoordinatorWorkTable.id, item.id))
+            .run(),
+        )
+      })
     }
     return dirty
   }
-
   function stripMeta(query: string) {
     return query
       .replace(/@[\w.\-\/]+/g, "")
@@ -844,29 +845,30 @@ export namespace SessionCoordinator {
         .filter((item) => item.metadata?.verdict === "confirm" || item.status === "resolved")
         .map((item) => claimKey(item)),
     )
-    for (const item of all) {
-      const next =
-        item.status === "rejected" || item.status === "resolved"
-          ? item.status
-          : bad.has(item.id)
-            ? "conflict"
-            : good.has(claimKey(item))
-              ? "verified"
-              : "reported"
-      if (next === item.status) continue
-      Database.use((db) =>
-        db
-          .update(SessionCoordinatorClaimTable)
-          .set({
-            status: next,
-            time_updated: now(),
-          })
-          .where(eq(SessionCoordinatorClaimTable.id, item.id))
-          .run(),
-      )
-    }
+    Database.transaction(() => {
+      for (const item of all) {
+        const next =
+          item.status === "rejected" || item.status === "resolved"
+            ? item.status
+            : bad.has(item.id)
+              ? "conflict"
+              : good.has(claimKey(item))
+                ? "verified"
+                : "reported"
+        if (next === item.status) continue
+        Database.use((db) =>
+          db
+            .update(SessionCoordinatorClaimTable)
+            .set({
+              status: next,
+              time_updated: now(),
+            })
+            .where(eq(SessionCoordinatorClaimTable.id, item.id))
+            .run(),
+        )
+      }
+    })
   }
-
   async function build(plan?: PlanInfo) {
     if (!plan) {
       return Snapshot.parse({
@@ -1195,72 +1197,93 @@ export namespace SessionCoordinator {
         )
         return refresh({ session_id: work.root_session_id })
       }
-      Database.use((db) =>
-        db
-          .update(SessionCoordinatorWorkTable)
-          .set({
-            status: "completed",
-            metadata: {
-              ...(work.metadata ?? {}),
-              summary: text,
-              context_id: input.context_id,
-              risks: report.risks ?? work.metadata?.risks,
-              error: undefined,
-              verify_topics: report.verify_topics,
-              invalid_claims: bad.length ? bad : undefined,
-              source_files: [...files],
-              timeout_at: time + WORK_TIMEOUT,
-            },
-            time_updated: time,
+      Database.transaction(() => {
+        Database.use((db) =>
+          db
+            .update(SessionCoordinatorWorkTable)
+            .set({
+              status: "completed",
+              metadata: {
+                ...(work.metadata ?? {}),
+                summary: text,
+                context_id: input.context_id,
+                risks: report.risks ?? work.metadata?.risks,
+                error: undefined,
+                verify_topics: report.verify_topics,
+                invalid_claims: bad.length ? bad : undefined,
+                source_files: [...files],
+                timeout_at: time + WORK_TIMEOUT,
+              },
+              time_updated: time,
+            })
+            .where(eq(SessionCoordinatorWorkTable.id, work.id))
+            .run(),
+        )
+        Database.use((db) => db.delete(SessionCoordinatorClaimTable).where(eq(SessionCoordinatorClaimTable.work_id, work.id)).run())
+        if (work.role === "reconciler") {
+          const prev = Database.use((db) =>
+            db.select().from(SessionCoordinatorClaimTable).where(eq(SessionCoordinatorClaimTable.plan_id, work.plan_id)).orderBy(asc(SessionCoordinatorClaimTable.time_created)).all(),
+          ).map((item) =>
+            ClaimInfo.parse({
+              ...item,
+              session_id: item.session_id ?? undefined,
+              metadata: item.metadata ?? undefined,
+            }),
+          )
+          const bad = conflicts({
+            works: Database.use((db) =>
+              db.select().from(SessionCoordinatorWorkTable).where(eq(SessionCoordinatorWorkTable.plan_id, work.plan_id)).orderBy(asc(SessionCoordinatorWorkTable.time_created)).all(),
+            ).map((item) =>
+              WorkInfo.parse({
+                ...item,
+                status: workStatus(item.status),
+                session_id: item.session_id ?? undefined,
+                depends_on: item.depends_on ?? undefined,
+                verify_against: item.verify_against ?? undefined,
+                metadata: item.metadata ?? undefined,
+              }),
+            ),
+            claims: prev,
           })
-          .where(eq(SessionCoordinatorWorkTable.id, work.id))
-          .run(),
-      )
-      Database.use((db) => db.delete(SessionCoordinatorClaimTable).where(eq(SessionCoordinatorClaimTable.work_id, work.id)).run())
-      if (work.role === "reconciler") {
-        const prev = await claims(work.plan_id)
-        const bad = conflicts({
-          works: await works(work.plan_id),
-          claims: prev,
-        })
-        const ids = bad.flatMap((item) => item.claim_ids)
-        if (ids.length) {
+          const ids = bad.flatMap((item) => item.claim_ids)
+          if (ids.length) {
+            Database.use((db) =>
+              db
+                .update(SessionCoordinatorClaimTable)
+                .set({
+                  status: "rejected",
+                  time_updated: time,
+                })
+                .where(inArray(SessionCoordinatorClaimTable.id, ids))
+                .run(),
+            )
+          }
+        }
+        if (next.length) {
           Database.use((db) =>
             db
-              .update(SessionCoordinatorClaimTable)
-              .set({
-                status: "rejected",
-                time_updated: time,
-              })
-              .where(inArray(SessionCoordinatorClaimTable.id, ids))
+              .insert(SessionCoordinatorClaimTable)
+              .values(
+                next.map((item) => ({
+                  id: Identifier.ascending("tool"),
+                  plan_id: work.plan_id,
+                  work_id: work.id,
+                  root_session_id: work.root_session_id,
+                  session_id: work.session_id ?? null,
+                  topic: item.topic,
+                  statement: item.statement,
+                  evidence: item.evidence,
+                  confidence: item.confidence,
+                  status: "reported",
+                  metadata: item.metadata,
+                  time_created: time,
+                  time_updated: time,
+                })),
+              )
               .run(),
           )
         }
-      }
-      if (next.length) {
-        Database.use((db) =>
-          db
-            .insert(SessionCoordinatorClaimTable)
-            .values(
-              next.map((item) => ({
-                id: Identifier.ascending("tool"),
-                plan_id: work.plan_id,
-                work_id: work.id,
-                root_session_id: work.root_session_id,
-                session_id: work.session_id ?? null,
-                topic: item.topic,
-                statement: item.statement,
-                evidence: item.evidence,
-                confidence: item.confidence,
-                status: "reported",
-                metadata: item.metadata,
-                time_created: time,
-                time_updated: time,
-              })),
-            )
-            .run(),
-        )
-      }
+      })
       const plan = await refresh({ session_id: work.root_session_id })
       if (work.role === "reconciler" && plan.conflicts.length === 0) {
         const source = await works(work.plan_id)
@@ -1279,7 +1302,6 @@ export namespace SessionCoordinator {
       return plan
     },
   )
-
   export const fail = fn(
     z.object({
       session_id: z.string(),
@@ -1501,9 +1523,9 @@ export namespace SessionCoordinator {
           (item.metadata?.attempt ?? 1) < WORK_ATTEMPTS &&
           !ws.some(
             (next) =>
-              next.status !== "failed" &&
+              next.id !== item.id &&
               (next.metadata?.retry_of === item.id ||
-                (next.metadata?.retry_of === item.metadata?.retry_of && next.metadata?.retry_of !== undefined)),
+                (item.metadata?.retry_of && next.metadata?.retry_of === item.metadata.retry_of)),
           ),
       )
       if (redo.length) {
@@ -1543,7 +1565,6 @@ export namespace SessionCoordinator {
       return { plan: await active(input.session_id), tasks: out }
     },
   )
-
   export const reply = fn(z.object({ session_id: z.string() }), async (input) => {
     const snap = await refresh({ session_id: input.session_id })
     if (!snap.plan || !snap.ready) return

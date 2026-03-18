@@ -60,6 +60,13 @@ export const BatchTool = Tool.define("batch", async () => {
           }
           const validatedParams = tool.parameters.parse(call.parameters)
 
+          await ctx.ask({
+            permission: call.tool,
+            metadata: { tool: call.tool, input: call.parameters, batch: true },
+            patterns: ["*"],
+            always: ["*"],
+          })
+
           await Session.updatePart({
             id: partID,
             messageID: ctx.messageID,
@@ -75,7 +82,6 @@ export const BatchTool = Tool.define("batch", async () => {
               },
             },
           })
-
           const result = await tool.execute(validatedParams, { ...ctx, callID: partID })
           const attachments = result.attachments?.map((attachment) => ({
             ...attachment,
